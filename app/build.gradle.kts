@@ -1,6 +1,3 @@
-import java.net.URL
-import java.util.zip.ZipInputStream
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -68,49 +65,6 @@ dependencies {
     implementation("com.alphacephei:vosk-android:0.3.47")
 }
 
-// ---------------------------------------------------------------------------
-// Offline speech model: fetched once at build time into assets, kept out of git.
-// ---------------------------------------------------------------------------
-val voskModelUrl = "https://alphacephei.com/vosk/models/vosk-model-small-pl-0.22.zip"
-val voskModelDir = layout.projectDirectory.dir("src/main/assets/model-pl")
-
-val downloadVoskModel by tasks.registering {
-    description = "Downloads the Vosk Polish small model into assets if missing."
-    val markerFile = voskModelDir.file("README").asFile
-    outputs.dir(voskModelDir)
-    onlyIf { !markerFile.exists() }
-    doLast {
-        val destRoot = voskModelDir.asFile
-        destRoot.mkdirs()
-        val tmpZip = File.createTempFile("vosk-model", ".zip")
-        logger.lifecycle("Downloading Vosk model from $voskModelUrl ...")
-        URL(voskModelUrl).openStream().use { input ->
-            tmpZip.outputStream().use { out -> input.copyTo(out) }
-        }
-        logger.lifecycle("Unpacking model into $destRoot ...")
-        ZipInputStream(tmpZip.inputStream()).use { zip ->
-            var entry = zip.nextEntry
-            while (entry != null) {
-                // Strip the top-level "vosk-model-small-pl-0.22/" folder.
-                val relPath = entry.name.substringAfter('/', "")
-                if (relPath.isNotEmpty()) {
-                    val outFile = File(destRoot, relPath)
-                    if (entry.isDirectory) {
-                        outFile.mkdirs()
-                    } else {
-                        outFile.parentFile.mkdirs()
-                        outFile.outputStream().use { out -> zip.copyTo(out) }
-                    }
-                }
-                zip.closeEntry()
-                entry = zip.nextEntry
-            }
-        }
-        tmpZip.delete()
-        logger.lifecycle("Vosk model ready.")
-    }
-}
-
-tasks.named("preBuild") {
-    dependsOn(downloadVoskModel)
-}
+// Language models are downloaded on demand at runtime (see VoskModelManager),
+// not bundled — this keeps the APK small and lets us add markets without
+// growing the download.

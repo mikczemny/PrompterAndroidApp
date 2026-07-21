@@ -7,18 +7,22 @@ import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 
 /**
- * On-device continuous speech recognition backed by Vosk. Fully offline: no
- * network, no API keys. Mirrors the JS useSpeechRecognition hook's contract —
- * it emits (text, isFinal, timestampMs) for both partial and final results so
- * the matcher can react as fast as possible.
+ * On-device continuous speech recognition backed by Vosk. Fully offline once
+ * the selected language's model has been downloaded: no API keys, no account,
+ * no network at recognition time. Mirrors the JS useSpeechRecognition hook's
+ * contract — it emits (text, isFinal, timestampMs) for partial and final
+ * results so the matcher can react as fast as possible.
  *
- * Requires the RECORD_AUDIO permission to already be granted before start().
+ * Requires RECORD_AUDIO granted before start(), and INTERNET the first time a
+ * given language is used (to fetch its model).
  */
 class VoskSpeechRecognizer(
     private val context: Context,
     private val onResult: (text: String, isFinal: Boolean, timestampMs: Long) -> Unit,
     private val onError: (message: String) -> Unit = {},
     private val onListeningChanged: (listening: Boolean) -> Unit = {},
+    /** progress in 0..1 while downloading a model, -1 for an indeterminate stage. */
+    private val onModelProgress: (downloading: Boolean, fraction: Float) -> Unit = { _, _ -> },
 ) {
     private var speechService: SpeechService? = null
     private var lastPartial: String = ""
@@ -53,7 +57,7 @@ class VoskSpeechRecognizer(
         }
 
         override fun onError(exception: Exception?) {
-            onError(exception?.message ?: "Nieznany błąd rozpoznawania mowy")
+            onError(exception?.message ?: "Speech recognition error")
         }
 
         override fun onTimeout() {
@@ -61,12 +65,19 @@ class VoskSpeechRecognizer(
         }
     }
 
-    /** Starts listening. Loads the model on a background thread if needed. */
-    fun start() {
+    /**
+     * Starts listening in [language]. Downloads the model on a background thread
+     * on first use (reporting progress); subsequent starts are instant/offline.
+     */
+    fun start(language: Language) {
         if (isListening) return
         Thread {
             try {
-                val model = VoskModelManager.loadModel(context)
+                val model = VoskModelManager.ensureModel(context, language) { fraction ->
+                    onModelProgress(true, fraction)
+                }
+                onModelProgress(false, 1f)
+
                 val recognizer = Recognizer(model, SAMPLE_RATE)
                 val service = SpeechService(recognizer, SAMPLE_RATE)
                 service.startListening(listener)
@@ -74,7 +85,8 @@ class VoskSpeechRecognizer(
                 isListening = true
                 onListeningChanged(true)
             } catch (t: Throwable) {
-                onError(t.message ?: "Nie udało się uruchomić rozpoznawania")
+                onModelProgress(false, 0f)
+                onError(t.message ?: "Could not start recognition")
                 onListeningChanged(false)
             }
         }.start()

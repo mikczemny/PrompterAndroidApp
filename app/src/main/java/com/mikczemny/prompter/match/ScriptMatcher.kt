@@ -17,6 +17,10 @@ class ScriptMatcher(scriptText: String) {
 
     private val tokens: List<ScriptToken> = tokenizeScript(scriptText)
 
+    /** Raw display units, one per matchable token — render these so highlight
+     *  indices returned in [MatchState.currentIndex] line up with what's shown. */
+    val displayTokens: List<String> = tokens.map { it.raw }
+
     private var currentIndex: Int = -1          // last confirmed matched word (-1 = not started)
     private val spokenBuffer = ArrayDeque<String>() // rolling window of normalized spoken words
     private var lastAdvanceTs: Long = now()
@@ -38,8 +42,7 @@ class ScriptMatcher(scriptText: String) {
      * updated state.
      */
     fun pushTranscript(text: String, timestamp: Long = now()): MatchState {
-        val words = WHITESPACE.split(text)
-            .filter { it.isNotEmpty() }
+        val words = splitWords(text)
             .map { normalizeWord(it) }
             .filter { it.isNotEmpty() }
 

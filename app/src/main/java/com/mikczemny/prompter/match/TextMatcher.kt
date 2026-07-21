@@ -53,13 +53,15 @@ fun wordSimilarity(a: String, b: String): Double {
 }
 
 private val DIACRITICS = Regex("[\\u0300-\\u036f]")
-private val NON_WORD = Regex("[^a-z0-9ążźćęłńóśż]", RegexOption.IGNORE_CASE)
+// Keep any Unicode letter or digit (Latin, Cyrillic, CJK, Devanagari, ...);
+// drop punctuation/symbols. This is what makes the matcher language-agnostic.
+private val NON_WORD = Regex("[^\\p{L}\\p{N}]")
 
 fun normalizeWord(w: String): String {
     val lowered = w.lowercase()
     val decomposed = Normalizer.normalize(lowered, Normalizer.Form.NFKD)
     return decomposed
-        .replace(DIACRITICS, "")   // strip combining accents
+        .replace(DIACRITICS, "")   // strip combining accents (Latin etc.)
         .replace(NON_WORD, "")
 }
 
@@ -69,9 +71,47 @@ data class ScriptToken(val index: Int, val raw: String, val norm: String)
 
 internal val WHITESPACE = Regex("\\s+")
 
+/** True for CJK ideographs and Japanese kana, which are written without spaces. */
+private fun isCjk(ch: Char): Boolean {
+    val c = ch.code
+    return (c in 0x4E00..0x9FFF) ||   // CJK Unified Ideographs
+        (c in 0x3400..0x4DBF) ||       // CJK Extension A
+        (c in 0x3040..0x309F) ||       // Hiragana
+        (c in 0x30A0..0x30FF) ||       // Katakana
+        (c in 0xF900..0xFAFF)          // CJK Compatibility Ideographs
+}
+
+/**
+ * Splits text into matchable units. Space-delimited languages yield one unit
+ * per word; CJK/kana yield one unit per character (those scripts have no word
+ * spaces), so alignment stays fine-grained across languages. Shared by the
+ * script tokenizer and the spoken-transcript path so their indices line up.
+ */
+fun splitWords(text: String): List<String> {
+    val out = ArrayList<String>()
+    for (chunk in text.split(WHITESPACE)) {
+        if (chunk.isEmpty()) continue
+        val sb = StringBuilder()
+        for (ch in chunk) {
+            if (isCjk(ch)) {
+                if (sb.isNotEmpty()) {
+                    out.add(sb.toString()); sb.setLength(0)
+                }
+                out.add(ch.toString())
+            } else {
+                sb.append(ch)
+            }
+        }
+        if (sb.isNotEmpty()) out.add(sb.toString())
+    }
+    return out
+}
+
+/** True if a display token is a single CJK/kana character (rendered without a trailing space). */
+fun isCjkToken(token: String): Boolean = token.length == 1 && isCjk(token[0])
+
 fun tokenizeScript(rawText: String): List<ScriptToken> {
-    val rawWords = rawText.split(WHITESPACE).filter { it.isNotEmpty() }
-    return rawWords.mapIndexed { index, raw ->
+    return splitWords(rawText).mapIndexed { index, raw ->
         ScriptToken(index = index, raw = raw, norm = normalizeWord(raw))
     }
 }

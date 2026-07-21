@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.ui.HomeScreen
 import com.mikczemny.prompter.ui.TeleprompterScreen
 import com.mikczemny.prompter.ui.theme.PrompterTheme
@@ -34,15 +35,18 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun PrompterApp() {
-    var script by remember { mutableStateOf<String?>(null) }
+    var session by remember { mutableStateOf<Session?>(null) }
 
-    val current = script
+    val current = session
     if (current == null) {
-        HomeScreen(onStart = { script = it })
+        HomeScreen(onStart = { script, language -> session = Session(script, language) })
     } else {
         TeleprompterScreen(
-            script = current,
-            onBack = { script = null },
+            script = current.script,
+            language = current.language,
+            onBack = { session = null },
         )
     }
 }
+
+private data class Session(val script: String, val language: Language)

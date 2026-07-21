@@ -19,7 +19,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -40,18 +42,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mikczemny.prompter.match.ScriptMatcher
+import com.mikczemny.prompter.match.isCjkToken
+import com.mikczemny.prompter.speech.Language
+import com.mikczemny.prompter.speech.VoskModelManager
 import com.mikczemny.prompter.speech.VoskSpeechRecognizer
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 private const val PX_PER_SEC_MAX = 900f
 private const val SCROLL_LERP = 0.12f
@@ -60,11 +66,11 @@ private val UPCOMING_COLOR = Color(0xFFE7E7EA)
 private val CURRENT_COLOR = Color(0xFF7EE787)
 
 @Composable
-fun TeleprompterScreen(script: String, onBack: () -> Unit) {
+fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     val context = LocalContext.current
 
-    val words = remember(script) { script.split(Regex("\\s+")).filter { it.isNotEmpty() } }
     val matcher = remember(script) { ScriptMatcher(script) }
+    val words = matcher.displayTokens
 
     var fontSize by remember { mutableFloatStateOf(44f) }
     var margin by remember { mutableFloatStateOf(8f) } // percent
@@ -74,6 +80,10 @@ fun TeleprompterScreen(script: String, onBack: () -> Unit) {
     var isListening by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
+    // Model download UI state.
+    var downloading by remember { mutableStateOf(false) }
+    var downloadFraction by remember { mutableFloatStateOf(-1f) }
+
     // Non-recomposing shared state read by the frame loop.
     val velocity = remember { mutableFloatStateOf(0f) }
     val wordOffsets = remember(script) { HashMap<Int, Float>() }
@@ -82,7 +92,7 @@ fun TeleprompterScreen(script: String, onBack: () -> Unit) {
 
     val scrollState = rememberScrollState()
 
-    val recognizer = remember(script) {
+    val recognizer = remember(script, language) {
         VoskSpeechRecognizer(
             context = context,
             onResult = { text, _, ts ->
@@ -95,6 +105,10 @@ fun TeleprompterScreen(script: String, onBack: () -> Unit) {
             },
             onError = { msg -> errorMsg = msg },
             onListeningChanged = { listening -> isListening = listening },
+            onModelProgress = { inProgress, fraction ->
+                downloading = inProgress
+                downloadFraction = fraction
+            },
         )
     }
 
@@ -107,9 +121,9 @@ fun TeleprompterScreen(script: String, onBack: () -> Unit) {
     ) { granted ->
         if (granted) {
             errorMsg = null
-            recognizer.start()
+            recognizer.start(language)
         } else {
-            errorMsg = "Brak zgody na mikrofon — prompter nie może śledzić głosu."
+            errorMsg = "Microphone permission denied — the prompter can't follow your voice."
         }
     }
 
@@ -122,7 +136,7 @@ fun TeleprompterScreen(script: String, onBack: () -> Unit) {
             ) == PackageManager.PERMISSION_GRANTED
             if (granted) {
                 errorMsg = null
-                recognizer.start()
+                recognizer.start(language)
             } else {
                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
@@ -148,101 +162,147 @@ fun TeleprompterScreen(script: String, onBack: () -> Unit) {
                     }
                     val next = (scrollState.value + velocityStep + correction)
                         .coerceIn(0f, scrollState.maxValue.toFloat())
-                    // dispatchRawDelta moves the scroll without animation.
                     scrollState.dispatchRawDelta(next - scrollState.value)
                 }
             }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { scaleX = if (mirror) -1f else 1f },
-    ) {
-        Box(
+    val modelReady = remember(language) { VoskModelManager.isModelReady(context, language) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .onGloballyPositioned { viewportHeight = it.size.height.toFloat() },
+                .fillMaxSize()
+                .graphicsLayer { scaleX = if (mirror) -1f else 1f },
         ) {
-            val marginFraction = margin / 100f
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(
-                        start = (marginFraction * 100).dp,
-                        end = (marginFraction * 100).dp,
-                        top = 24.dp,
-                        bottom = 400.dp,
-                    ),
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .onGloballyPositioned { viewportHeight = it.size.height.toFloat() },
             ) {
-                Text(
-                    text = buildAnnotatedString {
-                        words.forEachIndexed { i, w ->
-                            val color = when {
-                                i == currentIndex -> CURRENT_COLOR
-                                i < currentIndex -> READ_COLOR
-                                else -> UPCOMING_COLOR
-                            }
-                            withStyle(
-                                SpanStyle(
-                                    color = color,
-                                    fontWeight = if (i == currentIndex) FontWeight.Bold else FontWeight.Normal,
-                                )
-                            ) {
-                                append(w)
-                            }
-                            append(" ")
-                        }
-                    },
-                    style = TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize * 1.35f).sp),
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .wrapContentHeight()
-                        .onGloballyPositioned { contentHeight = it.size.height.toFloat() },
-                    onTextLayout = { layout ->
-                        // Record the top Y of each word for position correction.
-                        var searchStart = 0
-                        words.forEachIndexed { i, w ->
-                            val idx = layout.layoutInput.text.text.indexOf(w, searchStart)
-                            if (idx >= 0) {
-                                val line = layout.getLineForOffset(idx)
-                                wordOffsets[i] = layout.getLineTop(line)
-                                searchStart = idx + w.length
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(
+                            start = margin.dp,
+                            end = margin.dp,
+                            top = 24.dp,
+                            bottom = 400.dp,
+                        ),
+                ) {
+                    Text(
+                        text = buildAnnotatedString {
+                            words.forEachIndexed { i, w ->
+                                val color = when {
+                                    i == currentIndex -> CURRENT_COLOR
+                                    i < currentIndex -> READ_COLOR
+                                    else -> UPCOMING_COLOR
+                                }
+                                withStyle(
+                                    SpanStyle(
+                                        color = color,
+                                        fontWeight = if (i == currentIndex) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                ) {
+                                    append(w)
+                                }
+                                // No space between consecutive CJK characters.
+                                if (!isCjkToken(w)) append(" ")
                             }
-                        }
-                    },
+                        },
+                        style = TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize * 1.35f).sp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                            .onGloballyPositioned { contentHeight = it.size.height.toFloat() },
+                        onTextLayout = { layout ->
+                            val rendered = layout.layoutInput.text.text
+                            var searchStart = 0
+                            words.forEachIndexed { i, w ->
+                                val idx = rendered.indexOf(w, searchStart)
+                                if (idx >= 0) {
+                                    val line = layout.getLineForOffset(idx)
+                                    wordOffsets[i] = layout.getLineTop(line)
+                                    searchStart = idx + w.length
+                                }
+                            }
+                        },
+                    )
+                }
+
+                // Fixed guide line at ~40% marking the "read here" anchor.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .graphicsLayer { translationY = viewportHeight * 0.4f }
+                        .height(2.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                 )
             }
 
-            // Fixed guide line at ~40% marking the "read here" anchor.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .fillMaxWidth()
-                    .graphicsLayer { translationY = viewportHeight * 0.4f }
-                    .height(2.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+            ControlsBar(
+                isListening = isListening,
+                paused = paused,
+                currentIndex = currentIndex,
+                totalWords = words.size,
+                fontSize = fontSize,
+                margin = margin,
+                mirror = mirror,
+                errorMsg = errorMsg,
+                onToggleListening = { toggleListening() },
+                onFontSize = { fontSize = it },
+                onMargin = { margin = it },
+                onMirror = { mirror = it },
+                onBack = onBack,
             )
         }
 
-        ControlsBar(
-            isListening = isListening,
-            paused = paused,
-            currentIndex = currentIndex,
-            totalWords = words.size,
-            fontSize = fontSize,
-            margin = margin,
-            mirror = mirror,
-            errorMsg = errorMsg,
-            onToggleListening = { toggleListening() },
-            onFontSize = { fontSize = it },
-            onMargin = { margin = it },
-            onMirror = { mirror = it },
-            onBack = onBack,
-        )
+        if (downloading) {
+            ModelDownloadOverlay(language = language, fraction = downloadFraction)
+        }
+    }
+}
+
+@Composable
+private fun ModelDownloadOverlay(language: Language, fraction: Float) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xCC000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(32.dp),
+        ) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            Text(
+                text = "Downloading ${language.englishName} language pack…",
+                color = Color.White,
+                fontSize = 16.sp,
+            )
+            Text(
+                text = "One-time, ~${language.approxMb} MB. Works fully offline afterwards.",
+                color = Color(0xFFB9B9BD),
+                fontSize = 13.sp,
+            )
+            if (fraction in 0f..1f) {
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "${(fraction * 100).roundToInt()}%",
+                    color = Color(0xFFB9B9BD),
+                    fontSize = 12.sp,
+                )
+            }
+        }
     }
 }
 
@@ -282,20 +342,20 @@ private fun ControlsBar(
                     imageVector = if (isListening) Icons.Filled.Stop else Icons.Filled.Mic,
                     contentDescription = null,
                 )
-                Text(if (isListening) "  Zatrzymaj" else "  Start")
+                Text(if (isListening) "  Stop" else "  Start")
             }
             androidx.compose.material3.TextButton(onClick = onBack) {
-                Text("Zmień tekst")
+                Text("Edit text")
             }
         }
         Text(
-            text = (if (paused) "Pauza / brak dopasowania" else "Śledzenie aktywne") +
-                " — słowo ${currentIndex + 1}/$totalWords",
+            text = (if (paused) "Paused / no match" else "Tracking") +
+                " — word ${currentIndex + 1}/$totalWords",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Czcionka", fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
+            Text("Font", fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
             Slider(
                 value = fontSize,
                 onValueChange = onFontSize,
@@ -304,14 +364,14 @@ private fun ControlsBar(
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Margines", fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
+            Text("Margin", fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
             Slider(
                 value = margin,
                 onValueChange = onMargin,
                 valueRange = 0f..30f,
                 modifier = Modifier.weight(1f),
             )
-            Text("  Lustro", fontSize = 12.sp)
+            Text("  Mirror", fontSize = 12.sp)
             Switch(checked = mirror, onCheckedChange = onMirror)
         }
     }
