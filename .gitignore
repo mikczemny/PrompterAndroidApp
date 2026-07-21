@@ -1,0 +1,19 @@
+# Android / Gradle
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.keystore
+
+# Offline speech model (downloaded at build time, not committed)
+/app/src/main/assets/model-pl/
+
+# Reference prototype (kept locally, not part of the app build)
+/src_extracted/
