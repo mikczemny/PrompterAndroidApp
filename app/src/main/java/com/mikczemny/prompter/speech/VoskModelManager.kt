@@ -16,6 +16,14 @@ import java.util.zip.ZipInputStream
  * After a language's model is downloaded once, that language works fully
  * offline forever.
  */
+/** What the model is doing right now, for the UI overlay. */
+sealed interface ModelStatus {
+    /** Fetching over the network. [fraction] in 0..1, or -1 if size is unknown. */
+    data class Downloading(val fraction: Float) : ModelStatus
+    /** Unpacking / loading the model from disk (no network). */
+    data object Preparing : ModelStatus
+}
+
 object VoskModelManager {
 
     private val loaded = HashMap<String, Model>()
@@ -33,28 +41,29 @@ object VoskModelManager {
      * Ensures the model for [lang] is present (downloading if needed) and
      * returns a loaded [Model]. Blocking — call off the main thread.
      *
-     * @param onProgress fraction in 0..1 while downloading, or -1 for an
-     *   indeterminate stage (server sent no content length / unpacking).
+     * @param onStatus reports whether we're downloading (with progress) or just
+     *   preparing/loading a model that's already on disk.
      */
     @Synchronized
     fun ensureModel(
         context: Context,
         lang: Language,
-        onProgress: (Float) -> Unit = {},
+        onStatus: (ModelStatus) -> Unit = {},
     ): Model {
         loaded[lang.code]?.let { return it }
 
         val dir = modelDir(context, lang)
         if (!isModelReady(context, lang)) {
-            downloadAndUnpack(lang, dir, onProgress)
+            downloadAndUnpack(lang, dir, onStatus)
         }
-        onProgress(-1f) // loading stage
+        onStatus(ModelStatus.Preparing) // loading from disk, no network
         val model = Model(dir.absolutePath)
         loaded[lang.code] = model
         return model
     }
 
-    private fun downloadAndUnpack(lang: Language, dir: File, onProgress: (Float) -> Unit) {
+    private fun downloadAndUnpack(lang: Language, dir: File, onStatus: (ModelStatus) -> Unit) {
+        onStatus(ModelStatus.Downloading(-1f))
         val tmpZip = File.createTempFile("vosk-${lang.code}", ".zip")
         try {
             val connection = (URL(lang.modelUrl).openConnection() as HttpURLConnection).apply {
@@ -76,12 +85,13 @@ object VoskModelManager {
                         if (n < 0) break
                         output.write(buffer, 0, n)
                         readTotal += n
-                        if (total > 0) onProgress(readTotal.toFloat() / total) else onProgress(-1f)
+                        val frac = if (total > 0) readTotal.toFloat() / total else -1f
+                        onStatus(ModelStatus.Downloading(frac))
                     }
                 }
             }
 
-            onProgress(-1f) // unpacking stage
+            onStatus(ModelStatus.Preparing) // unpacking
             // Unpack into a temp dir first, then atomically swap in, so an
             // interrupted download never leaves a half-written model behind.
             val stagingDir = File(dir.parentFile, "${lang.code}.tmp")

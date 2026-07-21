@@ -21,8 +21,8 @@ class VoskSpeechRecognizer(
     private val onResult: (text: String, isFinal: Boolean, timestampMs: Long) -> Unit,
     private val onError: (message: String) -> Unit = {},
     private val onListeningChanged: (listening: Boolean) -> Unit = {},
-    /** progress in 0..1 while downloading a model, -1 for an indeterminate stage. */
-    private val onModelProgress: (downloading: Boolean, fraction: Float) -> Unit = { _, _ -> },
+    /** Non-null while a model is being fetched/prepared; null when idle/ready. */
+    private val onModelStatus: (status: ModelStatus?) -> Unit = {},
 ) {
     private var speechService: SpeechService? = null
     private var lastPartial: String = ""
@@ -77,10 +77,10 @@ class VoskSpeechRecognizer(
         cancelRequested = false
         Thread {
             try {
-                val model = VoskModelManager.ensureModel(context, language) { fraction ->
-                    onModelProgress(true, fraction)
+                val model = VoskModelManager.ensureModel(context, language) { status ->
+                    onModelStatus(status)
                 }
-                onModelProgress(false, 1f)
+                onModelStatus(null)
 
                 // User tapped Stop while the model was still downloading/loading.
                 if (cancelRequested) {
@@ -95,7 +95,7 @@ class VoskSpeechRecognizer(
                 isListening = true
                 onListeningChanged(true)
             } catch (t: Throwable) {
-                onModelProgress(false, 0f)
+                onModelStatus(null)
                 onError(t.message ?: "Could not start recognition")
                 onListeningChanged(false)
             }
@@ -111,7 +111,7 @@ class VoskSpeechRecognizer(
         speechService = null
         isListening = false
         lastPartial = ""
-        onModelProgress(false, 0f)
+        onModelStatus(null)
         onListeningChanged(false)
     }
 
