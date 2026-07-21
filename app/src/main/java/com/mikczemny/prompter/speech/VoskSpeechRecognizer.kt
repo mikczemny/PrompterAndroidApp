@@ -28,6 +28,9 @@ class VoskSpeechRecognizer(
     private var lastPartial: String = ""
 
     @Volatile
+    private var cancelRequested: Boolean = false
+
+    @Volatile
     var isListening: Boolean = false
         private set
 
@@ -71,12 +74,19 @@ class VoskSpeechRecognizer(
      */
     fun start(language: Language) {
         if (isListening) return
+        cancelRequested = false
         Thread {
             try {
                 val model = VoskModelManager.ensureModel(context, language) { fraction ->
                     onModelProgress(true, fraction)
                 }
                 onModelProgress(false, 1f)
+
+                // User tapped Stop while the model was still downloading/loading.
+                if (cancelRequested) {
+                    onListeningChanged(false)
+                    return@Thread
+                }
 
                 val recognizer = Recognizer(model, SAMPLE_RATE)
                 val service = SpeechService(recognizer, SAMPLE_RATE)
@@ -93,6 +103,7 @@ class VoskSpeechRecognizer(
     }
 
     fun stop() {
+        cancelRequested = true
         speechService?.let { service ->
             service.stop()
             service.shutdown()
@@ -100,6 +111,7 @@ class VoskSpeechRecognizer(
         speechService = null
         isListening = false
         lastPartial = ""
+        onModelProgress(false, 0f)
         onListeningChanged(false)
     }
 

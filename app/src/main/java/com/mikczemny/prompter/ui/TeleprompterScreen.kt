@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,6 +62,10 @@ import kotlin.math.roundToInt
 
 private const val PX_PER_SEC_MAX = 900f
 private const val SCROLL_LERP = 0.12f
+// A teleprompter is always light-on-black, independent of the system theme.
+private val STAGE_BG = Color(0xFF0B0B0C)
+private val STAGE_FG = Color(0xFFE7E7EA)
+private val MUTED_FG = Color(0xFFB9B9BD)
 private val READ_COLOR = Color(0xFF5A5A5E)
 private val UPCOMING_COLOR = Color(0xFFE7E7EA)
 private val CURRENT_COLOR = Color(0xFF7EE787)
@@ -168,8 +173,11 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
         }
     }
 
-    val modelReady = remember(language) { VoskModelManager.isModelReady(context, language) }
-
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = STAGE_BG,
+        contentColor = STAGE_FG,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -265,6 +273,7 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
             ModelDownloadOverlay(language = language, fraction = downloadFraction)
         }
     }
+    }
 }
 
 @Composable
@@ -352,7 +361,7 @@ private fun ControlsBar(
             text = (if (paused) "Paused / no match" else "Tracking") +
                 " — word ${currentIndex + 1}/$totalWords",
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            color = MUTED_FG,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Font", fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
