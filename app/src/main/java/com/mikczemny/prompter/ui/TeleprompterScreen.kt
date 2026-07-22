@@ -75,7 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mikczemny.prompter.match.ScriptMatcher
-import com.mikczemny.prompter.match.isCjkToken
 import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.speech.ModelStatus
 import com.mikczemny.prompter.speech.VoskSpeechRecognizer
@@ -172,27 +171,15 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     var contentHeight by remember { mutableFloatStateOf(1f) }
     var viewportHeight by remember { mutableFloatStateOf(1f) }
 
-    // The script renders as one immutable string. The highlight is painted over
-    // it rather than expressed as text spans, so tracking a new word repaints
-    // but never re-measures — which is what keeps long scripts cheap.
-    val renderedScript = remember(words) {
-        buildString {
-            words.forEach { w ->
-                append(w)
-                if (!isCjkToken(w)) append(' ')
-            }
-        }
-    }
-    val tokenCharStarts = remember(words) {
-        val starts = IntArray(words.size)
-        var pos = 0
-        words.forEachIndexed { i, w ->
-            starts[i] = pos
-            pos += w.length
-            if (!isCjkToken(w)) pos += 1 // the separating space appended above
-        }
-        starts
-    }
+    // The script is rendered exactly as written — line breaks, blank lines and
+    // spacing intact — because how a speaker lays out their text is part of how
+    // they read it. The matcher hands back each token's offset into that same
+    // string, so highlighting needs no reflowed copy.
+    //
+    // The string is immutable and the highlight is painted over it rather than
+    // expressed as text spans, so tracking a new word repaints but never
+    // re-measures, which is what keeps long scripts cheap.
+    val tokenCharStarts = matcher.tokenOffsets
     var textLayout by remember(words) { mutableStateOf<TextLayoutResult?>(null) }
 
     val scrollState = rememberScrollState()
@@ -321,7 +308,7 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                             ),
                     ) {
                         Text(
-                            text = renderedScript,
+                            text = script,
                             color = StageColors.Foreground,
                             style = TextStyle(
                                 fontSize = fontSize.sp,

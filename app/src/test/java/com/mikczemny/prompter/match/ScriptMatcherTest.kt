@@ -163,6 +163,69 @@ class ScriptMatcherTest {
     }
 }
 
+/**
+ * The stage renders the script exactly as written and locates words by these
+ * offsets. If tokenisation and the offsets ever disagree, the highlight lands
+ * on the wrong word — visible only on a device, so it is pinned here.
+ */
+class TokenOffsetTest {
+
+    @Test
+    fun `offsets point at the token inside the original text`() {
+        val text = "Hello   world\n\nSecond paragraph."
+
+        val tokens = tokenizeScript(text)
+
+        tokens.forEach { token ->
+            assertEquals(
+                "token ${token.index} (${token.raw}) has a wrong offset",
+                token.raw,
+                text.substring(token.start, token.start + token.raw.length),
+            )
+        }
+        assertEquals(listOf("Hello", "world", "Second", "paragraph."), tokens.map { it.raw })
+    }
+
+    @Test
+    fun `blank lines and repeated spaces do not shift offsets`() {
+        val text = "\n\n   Ready?\n\n\n    Steady   go\n"
+
+        val tokens = tokenizeScript(text)
+
+        assertEquals(listOf("Ready?", "Steady", "go"), tokens.map { it.raw })
+        tokens.forEach { token ->
+            assertEquals(
+                token.raw,
+                text.substring(token.start, token.start + token.raw.length),
+            )
+        }
+    }
+
+    @Test
+    fun `CJK characters are separate tokens with their own offsets`() {
+        val text = "大家好 hello"
+
+        val tokens = tokenizeScript(text)
+
+        assertEquals(listOf("大", "家", "好", "hello"), tokens.map { it.raw })
+        tokens.forEach { token ->
+            assertEquals(
+                token.raw,
+                text.substring(token.start, token.start + token.raw.length),
+            )
+        }
+    }
+
+    @Test
+    fun `matcher exposes one offset per display token`() {
+        val matcher = ScriptMatcher("one two\nthree")
+
+        assertEquals(matcher.displayTokens.size, matcher.tokenOffsets.size)
+        assertEquals(listOf("one", "two", "three"), matcher.displayTokens)
+        assertEquals(listOf(0, 4, 8), matcher.tokenOffsets.toList())
+    }
+}
+
 class TextMatcherTest {
 
     @Test

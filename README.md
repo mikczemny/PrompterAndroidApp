@@ -23,8 +23,13 @@ Built to be commercialized as a simple paid app across multiple markets
   offline.
 - `speech/VoskSpeechRecognizer.kt` — continuous on-device recognition, emitting
   partial and final results.
-- `ui/HomeScreen.kt` — script entry and language picker, with word count,
-  estimated speaking time and the script-length limits.
+- `document/` — importing scripts. `DocumentImporter` reads a file the user
+  picked through the storage access framework; `DocxExtractor` pulls text out of
+  a .docx without any library (a Word file is a ZIP holding XML); `TextReflow`
+  rejoins the lines PDF extraction breaks at the page margin; `ScriptFormatting`
+  puts one sentence per line on request.
+- `ui/HomeScreen.kt` — script entry, editing and language picker, with word
+  count, estimated speaking time and the script-length limits.
 - `ui/TeleprompterScreen.kt` — the reading stage: a focus band that lights the
   line being read and dims the rest, velocity+correction smooth scroll,
   tap-a-word-to-jump, restart for retakes, 3-2-1 countdown, mic-permission flow
@@ -43,6 +48,19 @@ Polish, French, German, Italian, Portuguese, Russian, Hindi, Japanese.
 
 Only the **first** use of each language needs internet; recognition then works
 offline.
+
+## Importing scripts
+
+PDF, .docx, .txt and .md can be imported straight into the script field. Text
+is taken as written; a PDF's line breaks are discarded first, because they come
+from the page margin rather than from the writer. Scanned PDFs hold pictures of
+words and yield nothing — they would need OCR. Legacy binary `.doc` is refused
+with a message telling the user to save as `.docx`.
+
+The stage renders the script exactly as it is written, so blank lines and line
+breaks are how a speaker positions text on the panel. "One line per sentence"
+does the same job automatically and is the fastest way to make an imported wall
+of prose readable aloud.
 
 ## Building
 

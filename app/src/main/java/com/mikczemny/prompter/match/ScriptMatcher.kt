@@ -21,6 +21,13 @@ class ScriptMatcher(scriptText: String) {
      *  indices returned in [MatchState.currentIndex] line up with what's shown. */
     val displayTokens: List<String> = tokens.map { it.raw }
 
+    /**
+     * Character offset of each token in the script text as it was given to this
+     * matcher. Lets the caller render that text unaltered — keeping the writer's
+     * line breaks and spacing — and still locate any token within it.
+     */
+    val tokenOffsets: IntArray = IntArray(tokens.size) { tokens[it].start }
+
     private var currentIndex: Int = -1          // last confirmed matched word (-1 = not started)
     private val spokenBuffer = ArrayDeque<String>() // rolling window of normalized spoken words
     // Vosk re-sends the whole in-progress utterance on every partial result, so

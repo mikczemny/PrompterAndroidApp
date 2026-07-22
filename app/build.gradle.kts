@@ -90,6 +90,10 @@ dependencies {
     // which Android 15+ devices reject and Play now requires.
     implementation("com.alphacephei:vosk-android:0.3.75")
 
+    // PDF text extraction. Word documents are handled without a library (see
+    // DocxExtractor) — only PDF genuinely needs one.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
     // The matcher is pure Kotlin with no Android dependencies, so its tests run
     // on the JVM — no emulator needed to check tracking behaviour.
     testImplementation("junit:junit:4.13.2")

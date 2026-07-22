@@ -67,7 +67,13 @@ fun normalizeWord(w: String): String {
 
 // ---------- Script tokenization ---------------------------------------
 
-data class ScriptToken(val index: Int, val raw: String, val norm: String)
+/**
+ * One matchable unit of the script. [start] is its character offset in the
+ * original text, which is what lets the stage render the writer's own layout —
+ * line breaks, blank lines, indentation — instead of a reflowed stream of
+ * space-separated words.
+ */
+data class ScriptToken(val index: Int, val raw: String, val norm: String, val start: Int)
 
 internal val WHITESPACE = Regex("\\s+")
 
@@ -110,10 +116,30 @@ fun splitWords(text: String): List<String> {
 /** True if a display token is a single CJK/kana character (rendered without a trailing space). */
 fun isCjkToken(token: String): Boolean = token.length == 1 && isCjk(token[0])
 
+/**
+ * Tokenizes the script while recording where each token sits in [rawText].
+ * Splitting rules match [splitWords] — whitespace separates, CJK characters
+ * stand alone — but nothing is discarded or rewritten, so the caller can render
+ * the original string and still map token indices onto it exactly.
+ */
 fun tokenizeScript(rawText: String): List<ScriptToken> {
-    return splitWords(rawText).mapIndexed { index, raw ->
-        ScriptToken(index = index, raw = raw, norm = normalizeWord(raw))
+    val out = ArrayList<ScriptToken>()
+    var i = 0
+    while (i < rawText.length) {
+        if (rawText[i].isWhitespace()) {
+            i++
+            continue
+        }
+        val start = i
+        if (isCjk(rawText[i])) {
+            i++
+        } else {
+            while (i < rawText.length && !rawText[i].isWhitespace() && !isCjk(rawText[i])) i++
+        }
+        val raw = rawText.substring(start, i)
+        out.add(ScriptToken(index = out.size, raw = raw, norm = normalizeWord(raw), start = start))
     }
+    return out
 }
 
 // ---------- Local alignment (Smith-Waterman variant) -------------------
