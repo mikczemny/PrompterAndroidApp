@@ -23,9 +23,16 @@ Built to be commercialized as a simple paid app across multiple markets
   offline.
 - `speech/VoskSpeechRecognizer.kt` — continuous on-device recognition, emitting
   partial and final results.
-- `ui/` — `HomeScreen` (script + language picker), `TeleprompterScreen` (word
-  highlighting, velocity+correction smooth scroll, font/margin/mirror controls,
-  mic-permission flow, first-run model-download overlay).
+- `ui/HomeScreen.kt` — script entry and language picker, with word count,
+  estimated speaking time and the script-length limits.
+- `ui/TeleprompterScreen.kt` — the reading stage: a focus band that lights the
+  line being read and dims the rest, velocity+correction smooth scroll,
+  tap-a-word-to-jump, restart for retakes, 3-2-1 countdown, mic-permission flow
+  and the first-run model-download overlay. The script renders as one immutable
+  string with the highlight painted over it, so tracking a word repaints without
+  re-measuring the text.
+- `ui/ScreenAwake.kt` — holds the screen on, pins its brightness, and hides the
+  system bars while prompting.
 
 ## Languages & models
 
@@ -39,20 +46,54 @@ offline.
 
 ## Building
 
-Requires JDK 17+ and the Android SDK (platform 34, build-tools 34.0.0).
+Requires JDK 17 and the Android SDK (platform 36, build-tools 36.0.0).
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-APK lands in `app/build/outputs/apk/debug/`. Easiest path for development is to
-open the project in **Android Studio** and run on a physical phone (mic quality
-matters for on-device STT).
+APK lands in `app/build/outputs/apk/debug/`. Run on a physical phone rather than
+an emulator — microphone quality is the whole point of on-device STT.
+
+The matching engine has no Android dependencies, so its behaviour is covered by
+plain JVM tests:
+
+```bash
+./gradlew testDebugUnitTest
+```
+
+The project path must be pure ASCII: the Android Gradle Plugin refuses to build
+from a directory containing non-ASCII characters on Windows.
+
+### Versioning
+
+`version.properties` at the repo root is the single source of truth. The build
+reads it, and the app shows `BuildConfig.VERSION_NAME` on the home screen, so
+what is displayed can never drift from what was built. Bump `VERSION_CODE` for
+every upload to Play.
+
+### Release builds
+
+Release is minified and resource-shrunk by R8. Vosk reaches its native library
+reflectively through JNA, so `app/proguard-rules.pro` keeps those classes by
+hand — a release build that skips them installs fine and then dies the moment
+recognition starts. Always smoke-test a signed release on a device before
+shipping; unit tests will not catch this class of failure.
+
+## Security notes
+
+The downloaded model archive is the app's only untrusted input, and it is
+unpacked and then handed to native code. `VoskModelManager` therefore requires
+HTTPS (including after redirects), rejects archive entries whose paths escape
+the target directory, and caps the unpacked size and entry count. Models are
+excluded from cloud backup and device transfer — they are large and freely
+re-downloadable.
 
 ## Roadmap toward release
 
 - Localize the app's own UI chrome per market (currently English).
 - Persist the last-used language; optionally pre-select the device locale.
+- Verify the model archives by checksum, so a compromised host cannot swap them.
 - CJK (Chinese/Japanese) matching works at character level but benefits from
   real-world tuning of the alignment thresholds per script.
 - Play Store: signing config, Play Asset Delivery vs. current on-demand

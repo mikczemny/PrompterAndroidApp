@@ -4,11 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -37,14 +33,18 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,17 +57,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -76,22 +79,33 @@ import com.mikczemny.prompter.match.isCjkToken
 import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.speech.ModelStatus
 import com.mikczemny.prompter.speech.VoskSpeechRecognizer
+import com.mikczemny.prompter.ui.theme.StageColors
+import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val PX_PER_SEC_MAX = 900f
 private const val SCROLL_LERP = 0.12f
-// A teleprompter is always light-on-black, independent of the system theme.
-private val STAGE_BG = Color(0xFF0B0B0C)
-private val STAGE_FG = Color(0xFFE7E7EA)
-private val MUTED_FG = Color(0xFFB9B9BD)
-private val PANEL_BG = Color(0xFF161618)
-private val READ_COLOR = Color(0xFF5A5A5E)
-private val UPCOMING_COLOR = Color(0xFFE7E7EA)
-private val CURRENT_COLOR = Color(0xFF7EE787)
-private val GO_GREEN = Color(0xFF2E9E4F)
-private val STOP_RED = Color(0xFFD32F2F)
+
+/**
+ * Where in the viewport the line being spoken is held, as a fraction of height.
+ * Near the top by default so the bulk of the panel shows what is coming next —
+ * the speaker needs to read ahead, not to admire what they already said.
+ * Adjustable, because the right spot depends on where the camera sits.
+ */
+private const val DEFAULT_ANCHOR = 0.15f
+
+/** Half-height of the fully lit reading band, as a fraction of viewport height. */
+private const val BAND_HALF_HEIGHT = 0.11f
+
+/** How far the dimming fades in above and below the band. */
+private const val BAND_FADE = 0.11f
+
+/** How dark the script goes outside the band. */
+private const val DIM_ALPHA = 0.78f
+
+private const val COUNTDOWN_FROM = 3
 
 /** Where the big Start/Stop button sits within the bottom control bar. */
 private enum class ButtonPos(val label: String) { LEFT("Left"), CENTER("Center"), RIGHT("Right") }
@@ -118,6 +132,7 @@ private fun tokenIndexForOffset(starts: IntArray, offset: Int): Int {
     return found
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -128,6 +143,8 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     var fontSize by remember { mutableFloatStateOf(44f) }
     var margin by remember { mutableFloatStateOf(8f) } // percent
     var mirror by remember { mutableStateOf(false) }
+    var anchorFraction by remember { mutableFloatStateOf(DEFAULT_ANCHOR) }
+    var useCountdown by remember { mutableStateOf(true) }
     var buttonPos by remember { mutableStateOf(ButtonPos.CENTER) }
     var showSettings by remember { mutableStateOf(false) }
     // Full brightness by default: the prompter is normally read at arm's length
@@ -135,32 +152,44 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     var brightness by remember { mutableFloatStateOf(1f) }
 
     KeepScreenBright(brightness)
+    ImmersiveStage()
 
     var currentIndex by remember { mutableIntStateOf(-1) }
     var paused by remember { mutableStateOf(true) }
     var isListening by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var countdown by remember { mutableIntStateOf(0) }
 
     // Model download/prepare UI state (null = idle/ready).
     var modelStatus by remember { mutableStateOf<ModelStatus?>(null) }
 
-    // Non-recomposing shared state read by the frame loop.
+    // Non-recomposing shared state read by the frame loop. The offsets are a
+    // primitive array rather than a map: it is written once per layout for every
+    // token and read on every frame, so boxing tens of thousands of floats would
+    // be pure waste. NaN marks a token that has not been laid out yet.
     val velocity = remember { mutableFloatStateOf(0f) }
-    val wordOffsets = remember(script) { HashMap<Int, Float>() }
+    val wordOffsets = remember(words) { FloatArray(words.size) { Float.NaN } }
     var contentHeight by remember { mutableFloatStateOf(1f) }
     var viewportHeight by remember { mutableFloatStateOf(1f) }
 
-    // Character offset where each display token starts in the rendered string.
-    // Derived from the same rule the AnnotatedString below is built with, so it
-    // needs no text search — mapping tokens to lines (and taps back to tokens)
-    // stays linear no matter how long the script is.
+    // The script renders as one immutable string. The highlight is painted over
+    // it rather than expressed as text spans, so tracking a new word repaints
+    // but never re-measures — which is what keeps long scripts cheap.
+    val renderedScript = remember(words) {
+        buildString {
+            words.forEach { w ->
+                append(w)
+                if (!isCjkToken(w)) append(' ')
+            }
+        }
+    }
     val tokenCharStarts = remember(words) {
         val starts = IntArray(words.size)
         var pos = 0
         words.forEachIndexed { i, w ->
             starts[i] = pos
             pos += w.length
-            if (!isCjkToken(w)) pos += 1 // the separating space appended below
+            if (!isCjkToken(w)) pos += 1 // the separating space appended above
         }
         starts
     }
@@ -194,26 +223,36 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     ) { granted ->
         if (granted) {
             errorMsg = null
-            recognizer.start(language)
+            if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
         } else {
             errorMsg = "Microphone permission denied — the prompter can't follow your voice."
         }
     }
 
     fun toggleListening() {
-        if (isListening) {
+        if (isListening || countdown > 0) {
+            countdown = 0
             recognizer.stop()
-        } else {
-            val granted = ContextCompat.checkSelfPermission(
-                context, Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                errorMsg = null
-                recognizer.start(language)
-            } else {
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
+            return
         }
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        errorMsg = null
+        if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
+    }
+
+    // The countdown gives the speaker a beat to draw breath and look up before
+    // the microphone opens.
+    LaunchedEffect(countdown) {
+        if (countdown <= 0) return@LaunchedEffect
+        delay(1000)
+        countdown -= 1
+        if (countdown == 0) recognizer.start(language)
     }
 
     /** Sends the pointer to [index] (-1 = back to the top) and parks tracking there. */
@@ -233,14 +272,18 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                 val dt = if (lastTs == 0L) 0f else min(0.05f, (ts - lastTs) / 1_000_000_000f)
                 lastTs = ts
 
-                val started = currentIndex >= 0
+                val started = currentIndex >= 0 && currentIndex < wordOffsets.size
                 val velocityStep = if (paused || !started) 0f else velocity.floatValue * dt
+
                 // Before the first match — and after a reset — the anchor is the
-                // top of the script rather than a tracked word.
-                val targetTop = if (started) wordOffsets[currentIndex] else 0f
+                // top of the script rather than a tracked word. A token that has
+                // not been laid out yet has no anchor at all, so only the
+                // velocity term applies until layout catches up.
+                val anchorTop = if (started) wordOffsets[currentIndex] else 0f
                 var correction = 0f
-                if (targetTop != null) {
-                    val targetScroll = if (started) targetTop - viewportHeight * 0.4f else 0f
+                if (!anchorTop.isNaN()) {
+                    val targetScroll =
+                        if (started) anchorTop - viewportHeight * anchorFraction else 0f
                     correction = (targetScroll - scrollState.value) * SCROLL_LERP
                 }
                 val next = (scrollState.value + velocityStep + correction)
@@ -252,11 +295,11 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = STAGE_BG,
-        contentColor = STAGE_FG,
+        color = StageColors.Background,
+        contentColor = StageColors.Foreground,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
 
                 // ---- Reading stage (text only) ----
                 Box(
@@ -278,29 +321,43 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                             ),
                     ) {
                         Text(
-                            text = buildAnnotatedString {
-                                words.forEachIndexed { i, w ->
-                                    val color = when {
-                                        i == currentIndex -> CURRENT_COLOR
-                                        i < currentIndex -> READ_COLOR
-                                        else -> UPCOMING_COLOR
-                                    }
-                                    withStyle(
-                                        SpanStyle(
-                                            color = color,
-                                            fontWeight = if (i == currentIndex) FontWeight.Bold else FontWeight.Normal,
-                                        )
-                                    ) {
-                                        append(w)
-                                    }
-                                    if (!isCjkToken(w)) append(" ")
-                                }
-                            },
-                            style = TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize * 1.35f).sp),
+                            text = renderedScript,
+                            color = StageColors.Foreground,
+                            style = TextStyle(
+                                fontSize = fontSize.sp,
+                                lineHeight = (fontSize * 1.35f).sp,
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .wrapContentHeight()
                                 .onGloballyPositioned { contentHeight = it.size.height.toFloat() }
+                                .drawBehind {
+                                    val layout = textLayout ?: return@drawBehind
+                                    val index = currentIndex
+                                    if (index < 0 || index >= tokenCharStarts.size) {
+                                        return@drawBehind
+                                    }
+                                    val start = tokenCharStarts[index]
+                                    val end = start + words[index].length
+                                    if (end > layout.layoutInput.text.length) return@drawBehind
+
+                                    val line = layout.getLineForOffset(start)
+                                    val top = layout.getLineTop(line)
+                                    val bottom = layout.getLineBottom(line)
+                                    val left = layout.getHorizontalPosition(start, true)
+                                    // A word split across a line break has no single
+                                    // box, so fall back to the rest of the line.
+                                    val right = layout.getHorizontalPosition(end, true)
+                                        .let { if (it <= left) layout.getLineRight(line) else it }
+                                    val pad = 5.dp.toPx()
+
+                                    drawRoundRect(
+                                        color = StageColors.Live.copy(alpha = 0.20f),
+                                        topLeft = Offset(left - pad, top),
+                                        size = Size(right - left + pad * 2, bottom - top),
+                                        cornerRadius = CornerRadius(8.dp.toPx()),
+                                    )
+                                }
                                 // Tap any word to read from there — the fast way to
                                 // recover a lost position, or to line up a retake.
                                 .pointerInput(words) {
@@ -324,38 +381,11 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                         )
                     }
 
-                    // Fixed guide line at ~40% marking the "read here" anchor.
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxWidth()
-                            .graphicsLayer { translationY = viewportHeight * 0.4f }
-                            .height(2.dp)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                    )
+                    FocusBand(anchor = anchorFraction)
                 }
 
                 // ---- Bottom controls ----
-                Column(modifier = Modifier.fillMaxWidth().background(STAGE_BG)) {
-                    AnimatedVisibility(
-                        visible = showSettings,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut(),
-                    ) {
-                        SettingsPanel(
-                            fontSize = fontSize,
-                            margin = margin,
-                            brightness = brightness,
-                            mirror = mirror,
-                            buttonPos = buttonPos,
-                            onFontSize = { fontSize = it },
-                            onMargin = { margin = it },
-                            onBrightness = { brightness = it },
-                            onMirror = { mirror = it },
-                            onButtonPos = { buttonPos = it },
-                        )
-                    }
-
+                Column(modifier = Modifier.fillMaxWidth().background(StageColors.Background)) {
                     if (errorMsg != null) {
                         Text(
                             errorMsg!!,
@@ -367,16 +397,26 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
 
                     ControlBar(
                         isListening = isListening,
+                        counting = countdown > 0,
                         buttonPos = buttonPos,
-                        settingsOpen = showSettings,
-                        statusText = (if (paused) "Paused" else "Tracking") +
-                            " · ${currentIndex + 1}/${words.size} · tap a word to jump",
+                        statusText = buildString {
+                            append(if (paused) "Paused" else "Tracking")
+                            append(" · ")
+                            append(currentIndex + 1)
+                            append('/')
+                            append(words.size)
+                            append(" · tap a word to jump")
+                        },
                         onBack = onBack,
                         onToggle = { toggleListening() },
                         onRestart = { moveTo(-1) },
-                        onToggleSettings = { showSettings = !showSettings },
+                        onToggleSettings = { showSettings = true },
                     )
                 }
+            }
+
+            if (countdown > 0) {
+                CountdownOverlay(countdown)
             }
 
             modelStatus?.let { status ->
@@ -384,13 +424,97 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
             }
         }
     }
+
+    if (showSettings) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettings = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = StageColors.Panel,
+            contentColor = StageColors.Foreground,
+        ) {
+            SettingsPanel(
+                fontSize = fontSize,
+                margin = margin,
+                brightness = brightness,
+                anchorFraction = anchorFraction,
+                mirror = mirror,
+                useCountdown = useCountdown,
+                buttonPos = buttonPos,
+                onFontSize = { fontSize = it },
+                onMargin = { margin = it },
+                onBrightness = { brightness = it },
+                onAnchorFraction = { anchorFraction = it },
+                onMirror = { mirror = it },
+                onCountdown = { useCountdown = it },
+                onButtonPos = { buttonPos = it },
+            )
+        }
+    }
+}
+
+/**
+ * Dims the script above and below the line being read. Professional prompters
+ * light a band rather than colouring the current word: the eye follows a steady
+ * lit region instead of chasing a moving marker, which is calmer to read from
+ * and forgiving when the recogniser is a word or two out.
+ *
+ * Painted as a scrim over the text rather than as text colour, so scrolling
+ * never touches layout. It carries no pointer handler, leaving taps to the
+ * script beneath it.
+ */
+@Composable
+private fun FocusBand(anchor: Float) {
+    val dim = StageColors.Background.copy(alpha = DIM_ALPHA)
+
+    // Gradient stops must stay inside 0..1 and never run backwards. With the
+    // band near an edge the raw offsets fall outside that range, so each one is
+    // clamped against the previous rather than against 0 alone.
+    val fadeInStart = (anchor - BAND_HALF_HEIGHT - BAND_FADE).coerceIn(0f, 1f)
+    val bandStart = (anchor - BAND_HALF_HEIGHT).coerceIn(fadeInStart, 1f)
+    val bandEnd = (anchor + BAND_HALF_HEIGHT).coerceIn(bandStart, 1f)
+    val fadeOutEnd = (anchor + BAND_HALF_HEIGHT + BAND_FADE).coerceIn(bandEnd, 1f)
+
+    val stops = buildList {
+        add(0f to dim)
+        if (fadeInStart > 0f) add(fadeInStart to dim)
+        add(bandStart to Color.Transparent)
+        add(bandEnd to Color.Transparent)
+        if (fadeOutEnd < 1f) add(fadeOutEnd to dim)
+        add(1f to dim)
+    }.toTypedArray()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(colorStops = stops))
+    )
+}
+
+@Composable
+private fun CountdownOverlay(value: Int) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xC00B0B0C)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = value.toString(),
+                color = StageColors.Live,
+                fontSize = 140.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(text = "Get ready…", color = StageColors.Muted, fontSize = 16.sp)
+        }
+    }
 }
 
 @Composable
 private fun ControlBar(
     isListening: Boolean,
+    counting: Boolean,
     buttonPos: ButtonPos,
-    settingsOpen: Boolean,
     statusText: String,
     onBack: () -> Unit,
     onToggle: () -> Unit,
@@ -402,23 +526,20 @@ private fun ControlBar(
         ButtonPos.CENTER -> Alignment.Center
         ButtonPos.RIGHT -> Alignment.CenterEnd
     }
+    val live = isListening || counting
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().height(76.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Back to main menu
-            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back to menu",
-                    tint = STAGE_FG,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
+            StageIconButton(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                description = "Back to menu",
+                onClick = onBack,
+            )
 
-            // Big Start/Stop, positioned per user setting (~1/4 of the bar width).
+            // Big Start/Stop, positioned per user setting.
             Box(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 contentAlignment = bigButtonAlignment,
@@ -426,51 +547,54 @@ private fun ControlBar(
                 Button(
                     onClick = onToggle,
                     modifier = Modifier.height(60.dp).widthIn(min = 150.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isListening) STOP_RED else GO_GREEN,
+                        containerColor = if (live) StageColors.Stop else StageColors.Go,
                         contentColor = Color.White,
                     ),
                 ) {
                     Icon(
-                        if (isListening) Icons.Filled.Stop else Icons.Filled.Mic,
+                        if (live) Icons.Filled.Stop else Icons.Filled.Mic,
                         contentDescription = null,
                         modifier = Modifier.size(26.dp),
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        if (isListening) "Stop" else "Start",
+                        if (live) "Stop" else "Start",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
             }
 
-            // Back to the top of the script, for another take
-            IconButton(onClick = onRestart, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    Icons.Filled.RestartAlt,
-                    contentDescription = "Restart script from the beginning",
-                    tint = STAGE_FG,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-
-            // Settings gear
-            IconButton(onClick = onToggleSettings, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                    tint = if (settingsOpen) CURRENT_COLOR else STAGE_FG,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
+            StageIconButton(
+                icon = Icons.Filled.RestartAlt,
+                description = "Restart script from the beginning",
+                onClick = onRestart,
+            )
+            StageIconButton(
+                icon = Icons.Filled.Settings,
+                description = "Settings",
+                onClick = onToggleSettings,
+            )
         }
         Text(
             text = statusText,
             fontSize = 12.sp,
-            color = MUTED_FG,
+            color = StageColors.Muted,
             modifier = Modifier.padding(start = 12.dp, bottom = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun StageIconButton(icon: ImageVector, description: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = StageColors.Foreground,
+            modifier = Modifier.size(28.dp),
         )
     }
 }
@@ -480,60 +604,72 @@ private fun SettingsPanel(
     fontSize: Float,
     margin: Float,
     brightness: Float,
+    anchorFraction: Float,
     mirror: Boolean,
+    useCountdown: Boolean,
     buttonPos: ButtonPos,
     onFontSize: (Float) -> Unit,
     onMargin: (Float) -> Unit,
     onBrightness: (Float) -> Unit,
+    onAnchorFraction: (Float) -> Unit,
     onMirror: (Boolean) -> Unit,
+    onCountdown: (Boolean) -> Unit,
     onButtonPos: (ButtonPos) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(PANEL_BG, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("Settings", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = STAGE_FG)
+        Text(
+            "Settings",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = StageColors.Foreground,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Font", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
-            Slider(value = fontSize, onValueChange = onFontSize, valueRange = 24f..96f, modifier = Modifier.weight(1f))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Margin", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
-            Slider(value = margin, onValueChange = onMargin, valueRange = 0f..30f, modifier = Modifier.weight(1f))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Screen", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
-            Slider(
-                value = brightness,
-                onValueChange = onBrightness,
-                valueRange = MIN_BRIGHTNESS..1f,
-                modifier = Modifier.weight(1f),
-            )
+        SettingSlider("Font", fontSize, 24f..96f, "${fontSize.roundToInt()} sp", onFontSize)
+        SettingSlider("Margin", margin, 0f..30f, "${margin.roundToInt()} dp", onMargin)
+        SettingSlider(
+            label = "Screen",
+            value = brightness,
+            range = MIN_BRIGHTNESS..1f,
+            readout = "${(brightness * 100).roundToInt()}%",
+            onValueChange = onBrightness,
+        )
+        SettingSlider(
+            label = "Read line",
+            value = anchorFraction,
+            range = 0.05f..0.6f,
+            readout = "${(anchorFraction * 100).roundToInt()}%",
+            onValueChange = onAnchorFraction,
+        )
+
+        SettingSwitch("Mirror", "For beam-splitter glass", mirror, onMirror)
+        SettingSwitch("Countdown", "3-2-1 before the mic opens", useCountdown, onCountdown)
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
             Text(
-                "${(brightness * 100).roundToInt()}%",
-                fontSize = 12.sp,
-                color = MUTED_FG,
-                modifier = Modifier.width(44.dp),
+                "Button",
+                fontSize = 14.sp,
+                color = StageColors.Muted,
+                modifier = Modifier.width(96.dp),
             )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Mirror", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
-            Switch(checked = mirror, onCheckedChange = onMirror)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Button", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ButtonPos.entries.forEach { pos ->
                     val selected = pos == buttonPos
                     Button(
                         onClick = { onButtonPos(pos) },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selected) GO_GREEN else Color(0xFF2A2A2E),
+                            containerColor =
+                                if (selected) StageColors.Go else StageColors.PanelRaised,
                             contentColor = Color.White,
                         ),
                     ) {
@@ -542,6 +678,64 @@ private fun SettingsPanel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    readout: String,
+    onValueChange: (Float) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 14.sp, color = StageColors.Muted, modifier = Modifier.width(96.dp))
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = range,
+            // Pinned to the stage palette: the sheet sits over the black stage,
+            // where the wallpaper-derived accent would clash with the controls.
+            colors = SliderDefaults.colors(
+                thumbColor = StageColors.Live,
+                activeTrackColor = StageColors.Go,
+                inactiveTrackColor = StageColors.PanelRaised,
+            ),
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            readout,
+            fontSize = 12.sp,
+            color = StageColors.Muted,
+            modifier = Modifier.width(52.dp),
+        )
+    }
+}
+
+@Composable
+private fun SettingSwitch(
+    label: String,
+    caption: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, fontSize = 14.sp, color = StageColors.Foreground)
+            Text(caption, fontSize = 12.sp, color = StageColors.Muted)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = StageColors.Go,
+            ),
+        )
     }
 }
 
@@ -571,9 +765,9 @@ private fun ModelStatusOverlay(language: Language, status: ModelStatus) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(32.dp),
         ) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            CircularProgressIndicator(color = StageColors.Live)
             Text(text = title, color = Color.White, fontSize = 16.sp)
-            Text(text = subtitle, color = Color(0xFFB9B9BD), fontSize = 13.sp)
+            Text(text = subtitle, color = StageColors.Muted, fontSize = 13.sp)
             if (fraction in 0f..1f) {
                 LinearProgressIndicator(
                     progress = { fraction },
@@ -581,7 +775,7 @@ private fun ModelStatusOverlay(language: Language, status: ModelStatus) {
                 )
                 Text(
                     text = "${(fraction * 100).roundToInt()}%",
-                    color = Color(0xFFB9B9BD),
+                    color = StageColors.Muted,
                     fontSize = 12.sp,
                 )
             }

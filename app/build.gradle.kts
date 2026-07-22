@@ -1,23 +1,43 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Version lives in version.properties at the repo root so releasing means
+// editing one file, and so the build fails loudly rather than shipping a
+// silently wrong version number.
+val versionProps = Properties().apply {
+    val file = rootProject.file("version.properties")
+    require(file.exists()) { "version.properties is missing from the project root" }
+    file.inputStream().use { load(it) }
+}
+val appVersionName: String = versionProps.getProperty("VERSION_NAME")
+    ?: error("VERSION_NAME missing from version.properties")
+val appVersionCode: Int = versionProps.getProperty("VERSION_CODE")?.toIntOrNull()
+    ?: error("VERSION_CODE missing or not a number in version.properties")
 
 android {
     namespace = "com.mikczemny.prompter"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mikczemny.prompter"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // Google Play requires a current target for published updates, and
+        // targeting 36 opts into the behaviour the app is actually tested on.
+        targetSdk = 36
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // See proguard-rules.pro: Vosk's JNA bridge has to be kept by hand.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -30,16 +50,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
+        // Exposes the version from version.properties to the app itself, so the
+        // number on screen can never drift from the number that was built.
+        buildConfig = true
     }
 
     packaging {
@@ -49,20 +64,31 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    // Pinned to the newest AndroidX line that still builds against compileSdk 36.
+    // Later releases require compileSdk 37, which Google has not published to the
+    // stable SDK channel yet.
+    val composeBom = platform("androidx.compose:compose-bom:2025.12.01")
     implementation(composeBom)
 
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
-    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+    implementation("androidx.activity:activity-compose:1.12.4")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    implementation("com.alphacephei:vosk-android:0.3.47")
+    // 0.3.47 shipped native libraries that are not 16 KB page-size aligned,
+    // which Android 15+ devices reject and Play now requires.
+    implementation("com.alphacephei:vosk-android:0.3.75")
 
     // The matcher is pure Kotlin with no Android dependencies, so its tests run
     // on the JVM — no emulator needed to check tracking behaviour.

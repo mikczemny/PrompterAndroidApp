@@ -7,6 +7,10 @@ import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -41,6 +45,33 @@ fun KeepScreenBright(brightness: Float) {
             window.attributes = window.attributes.apply {
                 screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             }
+        }
+    }
+}
+
+/**
+ * Hides the status and navigation bars for as long as this composable is in the
+ * tree, giving the script the whole panel. The bars stay reachable with a swipe
+ * — a clock and a battery icon are not worth the lines of script they cost, but
+ * neither is trapping the speaker.
+ */
+@Composable
+fun ImmersiveStage() {
+    val view = LocalView.current
+    val window = LocalContext.current.findActivity()?.window
+
+    DisposableEffect(window, view) {
+        if (window == null) return@DisposableEffect onDispose { }
+
+        val controller = WindowCompat.getInsetsController(window, view)
+        val previousBehavior = controller.systemBarsBehavior
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+
+        onDispose {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = previousBehavior
         }
     }
 }

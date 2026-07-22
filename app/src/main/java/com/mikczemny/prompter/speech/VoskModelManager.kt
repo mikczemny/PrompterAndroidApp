@@ -3,6 +3,7 @@ package com.mikczemny.prompter.speech
 import android.content.Context
 import org.vosk.Model
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.ZipInputStream
@@ -64,29 +65,49 @@ object VoskModelManager {
 
     private fun downloadAndUnpack(lang: Language, dir: File, onStatus: (ModelStatus) -> Unit) {
         onStatus(ModelStatus.Downloading(-1f))
+        val url = URL(lang.modelUrl)
+        require(url.protocol == "https") { "Model URLs must be HTTPS: ${lang.modelUrl}" }
+
         val tmpZip = File.createTempFile("vosk-${lang.code}", ".zip")
         try {
-            val connection = (URL(lang.modelUrl).openConnection() as HttpURLConnection).apply {
+            val connection = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 20_000
                 readTimeout = 30_000
                 instanceFollowRedirects = true
             }
             connection.connect()
+            // HttpURLConnection will not follow https -> http itself, but a
+            // redirect chain is worth re-checking: everything below trusts this
+            // archive enough to unpack it and hand it to native code.
+            if (connection.url.protocol != "https") {
+                throw IOException("Model download was redirected off HTTPS")
+            }
             if (connection.responseCode !in 200..299) {
-                throw java.io.IOException("HTTP ${connection.responseCode} pobierając model")
+                throw IOException("HTTP ${connection.responseCode} pobierając model")
             }
             val total = connection.contentLengthLong
             connection.inputStream.use { input ->
                 tmpZip.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
                     var readTotal = 0L
+                    var lastReportedPercent = -1
                     while (true) {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
                         readTotal += n
+
+                        // Report only when the whole number of percent changes.
+                        // Every 64 KB chunk would otherwise push a new state
+                        // through the UI — hundreds of recompositions across a
+                        // 50 MB model, for a progress bar nobody can read that
+                        // finely.
                         val frac = if (total > 0) readTotal.toFloat() / total else -1f
-                        onStatus(ModelStatus.Downloading(frac))
+                        val percent = if (total > 0) (frac * 100).toInt() else -1
+                        if (percent != lastReportedPercent) {
+                            lastReportedPercent = percent
+                            onStatus(ModelStatus.Downloading(frac))
+                        }
                     }
                 }
             }
@@ -110,19 +131,53 @@ object VoskModelManager {
         }
     }
 
-    private fun unzipStrippingTopFolder(zipFile: File, targetDir: File) {
+    /**
+     * Unpacks the model archive, dropping the leading "vosk-model-.../" folder.
+     *
+     * Everything here treats the archive as untrusted. It arrives over HTTPS
+     * from a third party and is handed straight to native code, so a tampered
+     * or swapped archive is the most valuable thing an attacker could aim at
+     * this app. Two classes of abuse are refused outright: entry names that
+     * climb out of the target directory (Zip Slip), and archives that expand
+     * far beyond any plausible model size.
+     */
+    internal fun unzipStrippingTopFolder(zipFile: File, targetDir: File) {
+        val targetRoot = targetDir.canonicalPath + File.separator
+        var totalBytes = 0L
+        var entryCount = 0
+
         ZipInputStream(zipFile.inputStream().buffered()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
-                // Strip the leading "vosk-model-.../" folder from every path.
+                if (++entryCount > MAX_ENTRIES) {
+                    throw IOException("Model archive has too many entries")
+                }
+
                 val relPath = entry.name.substringAfter('/', "")
                 if (relPath.isNotEmpty()) {
                     val outFile = File(targetDir, relPath)
+                    // Resolve before writing: "../" segments and absolute paths
+                    // would otherwise land outside the model directory.
+                    if (!outFile.canonicalPath.startsWith(targetRoot)) {
+                        throw IOException("Model archive entry escapes its directory: ${entry.name}")
+                    }
+
                     if (entry.isDirectory) {
                         outFile.mkdirs()
                     } else {
                         outFile.parentFile?.mkdirs()
-                        outFile.outputStream().use { out -> zip.copyTo(out) }
+                        outFile.outputStream().use { out ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = zip.read(buffer)
+                                if (n < 0) break
+                                totalBytes += n
+                                if (totalBytes > MAX_UNPACKED_BYTES) {
+                                    throw IOException("Model archive expands beyond the size limit")
+                                }
+                                out.write(buffer, 0, n)
+                            }
+                        }
                     }
                 }
                 zip.closeEntry()
@@ -130,4 +185,8 @@ object VoskModelManager {
             }
         }
     }
+
+    /** Comfortably above the largest published small model, far below a disk-filling bomb. */
+    private const val MAX_UNPACKED_BYTES = 512L * 1024 * 1024
+    private const val MAX_ENTRIES = 10_000
 }

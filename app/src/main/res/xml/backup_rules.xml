@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Language models are excluded from backup. They run to ~50 MB each and several
+  hundred MB together, they are re-downloadable from a public URL, and shipping
+  them to cloud backup would burn the user's quota to restore something the app
+  can fetch again on demand.
+-->
+<full-backup-content>
+    <exclude domain="file" path="models" />
+</full-backup-content>
