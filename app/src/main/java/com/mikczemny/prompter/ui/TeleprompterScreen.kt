@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -57,9 +59,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +96,28 @@ private val STOP_RED = Color(0xFFD32F2F)
 /** Where the big Start/Stop button sits within the bottom control bar. */
 private enum class ButtonPos(val label: String) { LEFT("Left"), CENTER("Center"), RIGHT("Right") }
 
+/**
+ * Token whose rendered text contains [offset], via binary search over the
+ * per-token start offsets. Returns the last token starting at or before the
+ * offset, so a tap in the trailing space lands on the word just read.
+ */
+private fun tokenIndexForOffset(starts: IntArray, offset: Int): Int {
+    if (starts.isEmpty()) return -1
+    var low = 0
+    var high = starts.size - 1
+    var found = 0
+    while (low <= high) {
+        val mid = (low + high) / 2
+        if (starts[mid] <= offset) {
+            found = mid
+            low = mid + 1
+        } else {
+            high = mid - 1
+        }
+    }
+    return found
+}
+
 @Composable
 fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -104,6 +130,11 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     var mirror by remember { mutableStateOf(false) }
     var buttonPos by remember { mutableStateOf(ButtonPos.CENTER) }
     var showSettings by remember { mutableStateOf(false) }
+    // Full brightness by default: the prompter is normally read at arm's length
+    // and often against daylight.
+    var brightness by remember { mutableFloatStateOf(1f) }
+
+    KeepScreenBright(brightness)
 
     var currentIndex by remember { mutableIntStateOf(-1) }
     var paused by remember { mutableStateOf(true) }
@@ -119,13 +150,29 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     var contentHeight by remember { mutableFloatStateOf(1f) }
     var viewportHeight by remember { mutableFloatStateOf(1f) }
 
+    // Character offset where each display token starts in the rendered string.
+    // Derived from the same rule the AnnotatedString below is built with, so it
+    // needs no text search — mapping tokens to lines (and taps back to tokens)
+    // stays linear no matter how long the script is.
+    val tokenCharStarts = remember(words) {
+        val starts = IntArray(words.size)
+        var pos = 0
+        words.forEachIndexed { i, w ->
+            starts[i] = pos
+            pos += w.length
+            if (!isCjkToken(w)) pos += 1 // the separating space appended below
+        }
+        starts
+    }
+    var textLayout by remember(words) { mutableStateOf<TextLayoutResult?>(null) }
+
     val scrollState = rememberScrollState()
 
     val recognizer = remember(script, language) {
         VoskSpeechRecognizer(
             context = context,
-            onResult = { text, _, ts ->
-                val state = matcher.pushTranscript(text, ts)
+            onResult = { text, isFinal, ts ->
+                val state = matcher.pushTranscript(text, isFinal, ts)
                 currentIndex = state.currentIndex
                 paused = state.paused
                 val avgPxPerWord = contentHeight / max(words.size, 1)
@@ -169,6 +216,14 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
         }
     }
 
+    /** Sends the pointer to [index] (-1 = back to the top) and parks tracking there. */
+    fun moveTo(index: Int) {
+        matcher.jumpTo(index)
+        currentIndex = index
+        paused = true
+        velocity.floatValue = 0f
+    }
+
     // Smooth scroll loop: blends velocity-based motion with position correction
     // toward the actually tracked word so drift self-heals.
     LaunchedEffect(Unit) {
@@ -178,18 +233,19 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                 val dt = if (lastTs == 0L) 0f else min(0.05f, (ts - lastTs) / 1_000_000_000f)
                 lastTs = ts
 
-                if (currentIndex >= 0) {
-                    val velocityStep = if (paused) 0f else velocity.floatValue * dt
-                    val targetTop = wordOffsets[currentIndex]
-                    var correction = 0f
-                    if (targetTop != null) {
-                        val targetScroll = targetTop - viewportHeight * 0.4f
-                        correction = (targetScroll - scrollState.value) * SCROLL_LERP
-                    }
-                    val next = (scrollState.value + velocityStep + correction)
-                        .coerceIn(0f, scrollState.maxValue.toFloat())
-                    scrollState.dispatchRawDelta(next - scrollState.value)
+                val started = currentIndex >= 0
+                val velocityStep = if (paused || !started) 0f else velocity.floatValue * dt
+                // Before the first match — and after a reset — the anchor is the
+                // top of the script rather than a tracked word.
+                val targetTop = if (started) wordOffsets[currentIndex] else 0f
+                var correction = 0f
+                if (targetTop != null) {
+                    val targetScroll = if (started) targetTop - viewportHeight * 0.4f else 0f
+                    correction = (targetScroll - scrollState.value) * SCROLL_LERP
                 }
+                val next = (scrollState.value + velocityStep + correction)
+                    .coerceIn(0f, scrollState.maxValue.toFloat())
+                scrollState.dispatchRawDelta(next - scrollState.value)
             }
         }
     }
@@ -244,16 +300,24 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .wrapContentHeight()
-                                .onGloballyPositioned { contentHeight = it.size.height.toFloat() },
+                                .onGloballyPositioned { contentHeight = it.size.height.toFloat() }
+                                // Tap any word to read from there — the fast way to
+                                // recover a lost position, or to line up a retake.
+                                .pointerInput(words) {
+                                    detectTapGestures { pos ->
+                                        val layout = textLayout ?: return@detectTapGestures
+                                        val offset = layout.getOffsetForPosition(pos)
+                                        moveTo(tokenIndexForOffset(tokenCharStarts, offset))
+                                    }
+                                },
                             onTextLayout = { layout ->
-                                val rendered = layout.layoutInput.text.text
-                                var searchStart = 0
-                                words.forEachIndexed { i, w ->
-                                    val idx = rendered.indexOf(w, searchStart)
-                                    if (idx >= 0) {
-                                        val line = layout.getLineForOffset(idx)
+                                textLayout = layout
+                                val length = layout.layoutInput.text.length
+                                words.indices.forEach { i ->
+                                    val offset = tokenCharStarts[i]
+                                    if (offset < length) {
+                                        val line = layout.getLineForOffset(offset)
                                         wordOffsets[i] = layout.getLineTop(line)
-                                        searchStart = idx + w.length
                                     }
                                 }
                             },
@@ -281,10 +345,12 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                         SettingsPanel(
                             fontSize = fontSize,
                             margin = margin,
+                            brightness = brightness,
                             mirror = mirror,
                             buttonPos = buttonPos,
                             onFontSize = { fontSize = it },
                             onMargin = { margin = it },
+                            onBrightness = { brightness = it },
                             onMirror = { mirror = it },
                             onButtonPos = { buttonPos = it },
                         )
@@ -304,9 +370,10 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                         buttonPos = buttonPos,
                         settingsOpen = showSettings,
                         statusText = (if (paused) "Paused" else "Tracking") +
-                            " · ${currentIndex + 1}/${words.size}",
+                            " · ${currentIndex + 1}/${words.size} · tap a word to jump",
                         onBack = onBack,
                         onToggle = { toggleListening() },
+                        onRestart = { moveTo(-1) },
                         onToggleSettings = { showSettings = !showSettings },
                     )
                 }
@@ -327,6 +394,7 @@ private fun ControlBar(
     statusText: String,
     onBack: () -> Unit,
     onToggle: () -> Unit,
+    onRestart: () -> Unit,
     onToggleSettings: () -> Unit,
 ) {
     val bigButtonAlignment = when (buttonPos) {
@@ -378,6 +446,16 @@ private fun ControlBar(
                 }
             }
 
+            // Back to the top of the script, for another take
+            IconButton(onClick = onRestart, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Filled.RestartAlt,
+                    contentDescription = "Restart script from the beginning",
+                    tint = STAGE_FG,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+
             // Settings gear
             IconButton(onClick = onToggleSettings, modifier = Modifier.size(48.dp)) {
                 Icon(
@@ -401,10 +479,12 @@ private fun ControlBar(
 private fun SettingsPanel(
     fontSize: Float,
     margin: Float,
+    brightness: Float,
     mirror: Boolean,
     buttonPos: ButtonPos,
     onFontSize: (Float) -> Unit,
     onMargin: (Float) -> Unit,
+    onBrightness: (Float) -> Unit,
     onMirror: (Boolean) -> Unit,
     onButtonPos: (ButtonPos) -> Unit,
 ) {
@@ -424,6 +504,21 @@ private fun SettingsPanel(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Margin", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
             Slider(value = margin, onValueChange = onMargin, valueRange = 0f..30f, modifier = Modifier.weight(1f))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Screen", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))
+            Slider(
+                value = brightness,
+                onValueChange = onBrightness,
+                valueRange = MIN_BRIGHTNESS..1f,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${(brightness * 100).roundToInt()}%",
+                fontSize = 12.sp,
+                color = MUTED_FG,
+                modifier = Modifier.width(44.dp),
+            )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Mirror", fontSize = 13.sp, color = MUTED_FG, modifier = Modifier.width(76.dp))

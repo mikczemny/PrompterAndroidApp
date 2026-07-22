@@ -63,6 +63,10 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("com.alphacephei:vosk-android:0.3.47")
+
+    // The matcher is pure Kotlin with no Android dependencies, so its tests run
+    // on the JVM — no emulator needed to check tracking behaviour.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Language models are downloaded on demand at runtime (see VoskModelManager),

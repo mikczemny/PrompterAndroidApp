@@ -122,46 +122,90 @@ private const val MATCH_SIM_THRESHOLD = 0.6   // below this, treat as mismatch
 private const val MATCH_SCORE = 8.0
 private const val MISMATCH_PENALTY = -4.0
 private const val GAP_PENALTY = -3.0
-private const val MIN_ACCEPT_SCORE = 6.0      // minimum alignment score to trust
+private const val MIN_ACCEPT_SCORE = 10.0     // minimum alignment score to trust
+// Cost per script word of distance between the alignment and where we expect
+// the speaker to be. Without it, a single common word ("that", "and") echoing
+// far ahead in the script outbids the correct nearby alignment and the prompter
+// leaps over a whole paragraph. At 0.35/word a 20-word leap must earn roughly a
+// full extra matched word to win.
+private const val DISTANCE_PENALTY = 0.35
 
-data class AlignResult(val endIndex: Int, val score: Double)
+data class AlignResult(
+    val endIndex: Int,
+    val score: Double,
+    /** How many spoken words actually matched (not gaps/mismatches) on the winning path. */
+    val matchedWords: Int,
+)
 
 /**
  * Aligns [spoken] (recent recognized words, normalized) against [scriptWindow]
  * (a slice of script tokens, normalized) and returns the best-matching end
  * index within scriptWindow, or null if nothing scored high enough to trust
  * (keep current position — speaker likely paused or off-script for a moment).
+ *
+ * [anchor] is the index within [scriptWindow] where the speaker is expected to
+ * be next; alignments are scored down the further they land from it, so ties
+ * resolve toward continuing rather than jumping.
  */
-fun alignToScript(spoken: List<String>, scriptWindow: List<String>): AlignResult? {
+fun alignToScript(
+    spoken: List<String>,
+    scriptWindow: List<String>,
+    anchor: Int = 0,
+): AlignResult? {
     val m = spoken.size
     val n = scriptWindow.size
     if (m == 0 || n == 0) return null
 
     // H[i][j] = best local-alignment score ending at spoken[i-1], script[j-1]
     val h = Array(m + 1) { DoubleArray(n + 1) }
+    // Matched-word count carried along the same path that produced h[i][j].
+    val matched = Array(m + 1) { IntArray(n + 1) }
 
     var bestScore = 0.0
+    var bestAdjusted = Double.NEGATIVE_INFINITY
+    var bestMatched = 0
     var bestJ = 0
 
     for (i in 1..m) {
         for (j in 1..n) {
             val sim = wordSimilarity(spoken[i - 1], scriptWindow[j - 1])
-            val matchScore = if (sim >= MATCH_SIM_THRESHOLD) MATCH_SCORE * sim else MISMATCH_PENALTY
+            val isMatch = sim >= MATCH_SIM_THRESHOLD
+            val matchScore = if (isMatch) MATCH_SCORE * sim else MISMATCH_PENALTY
 
             val diag = h[i - 1][j - 1] + matchScore
             val up = h[i - 1][j] + GAP_PENALTY     // gap in script (extra/filler spoken word)
             val left = h[i][j - 1] + GAP_PENALTY   // gap in speech (script word skipped)
 
-            val value = maxOf(0.0, diag, up, left)
+            // Pick the predecessor explicitly so the matched-word count follows
+            // the same path as the score.
+            var value = 0.0
+            var count = 0
+            if (diag > value) {
+                value = diag
+                count = matched[i - 1][j - 1] + if (isMatch) 1 else 0
+            }
+            if (up > value) {
+                value = up
+                count = matched[i - 1][j]
+            }
+            if (left > value) {
+                value = left
+                count = matched[i][j - 1]
+            }
             h[i][j] = value
+            matched[i][j] = count
 
-            if (value > bestScore) {
+            val adjusted = value - DISTANCE_PENALTY * kotlin.math.abs((j - 1) - anchor)
+            if (value > 0.0 && adjusted > bestAdjusted) {
+                bestAdjusted = adjusted
                 bestScore = value
+                bestMatched = count
                 bestJ = j
             }
         }
     }
 
-    if (bestScore < MIN_ACCEPT_SCORE) return null
-    return AlignResult(endIndex = bestJ - 1, score = bestScore) // index into scriptWindow
+    if (bestJ == 0 || bestScore < MIN_ACCEPT_SCORE) return null
+    // endIndex is an index into scriptWindow.
+    return AlignResult(endIndex = bestJ - 1, score = bestScore, matchedWords = bestMatched)
 }

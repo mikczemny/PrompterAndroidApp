@@ -23,32 +23,53 @@ class ScriptMatcher(scriptText: String) {
 
     private var currentIndex: Int = -1          // last confirmed matched word (-1 = not started)
     private val spokenBuffer = ArrayDeque<String>() // rolling window of normalized spoken words
+    // Vosk re-sends the whole in-progress utterance on every partial result, so
+    // we remember what we already consumed and only append the new tail.
+    private var partialWords: List<String> = emptyList()
     private var lastAdvanceTs: Long = now()
     private var wordsPerSecEMA: Double = 0.0
     private val advanceHistory = ArrayDeque<Advance>() // for WPM calc
 
     private data class Advance(val ts: Long, val index: Int)
 
-    fun reset() {
-        currentIndex = -1
+    fun reset() = jumpTo(-1)
+
+    /**
+     * Moves the confirmed pointer to [index] (-1 = before the first word) and
+     * drops accumulated speech state, so tracking resumes cleanly from there.
+     * Used by the on-screen restart control and tap-to-position.
+     */
+    fun jumpTo(index: Int) {
+        currentIndex = index.coerceIn(-1, tokens.size - 1)
         spokenBuffer.clear()
+        partialWords = emptyList()
         advanceHistory.clear()
         wordsPerSecEMA = 0.0
         lastAdvanceTs = now()
     }
 
     /**
-     * Feed a chunk of newly recognized text (partial or final). Returns the
-     * updated state.
+     * Feed recognized text. [isFinal] distinguishes Vosk's cumulative partial
+     * hypotheses from a settled utterance; both carry the full text so far, and
+     * only the words past the previously seen prefix are new.
      */
-    fun pushTranscript(text: String, timestamp: Long = now()): MatchState {
+    fun pushTranscript(text: String, isFinal: Boolean = true, timestamp: Long = now()): MatchState {
         val words = splitWords(text)
             .map { normalizeWord(it) }
             .filter { it.isNotEmpty() }
 
-        if (words.isEmpty()) return getState(timestamp)
+        // Vosk revises hypotheses, so compare against the last partial rather
+        // than assuming the new one is a strict extension.
+        var shared = 0
+        while (shared < words.size && shared < partialWords.size && words[shared] == partialWords[shared]) {
+            shared++
+        }
+        val fresh = words.drop(shared)
+        partialWords = if (isFinal) emptyList() else words
 
-        spokenBuffer.addAll(words)
+        if (fresh.isEmpty()) return getState(timestamp)
+
+        spokenBuffer.addAll(fresh)
         while (spokenBuffer.size > SPOKEN_BUFFER_SIZE) {
             spokenBuffer.removeFirst()
         }
@@ -63,22 +84,31 @@ class ScriptMatcher(scriptText: String) {
         if (windowStart >= windowEnd) return
 
         val scriptWindow = tokens.subList(windowStart, windowEnd).map { it.norm }
-        val result = alignToScript(spokenBuffer.toList(), scriptWindow)
+        val anchor = (currentIndex + 1) - windowStart
+        val result = alignToScript(spokenBuffer.toList(), scriptWindow, anchor)
             ?: return // no confident match: hold position (speaker paused/off-script)
 
-        val newIndex = windowStart + result.endIndex
+        // One coincidental word is not evidence of anything.
+        if (result.matchedWords < MIN_MATCHED_WORDS) return
 
-        // Only move forward; never regress the confirmed pointer to avoid
-        // visual jumping backwards on a false positive.
-        if (newIndex > currentIndex) {
-            currentIndex = newIndex
-            advanceHistory.addLast(Advance(timestamp, newIndex))
-            // keep ~4s of history
-            while (advanceHistory.isNotEmpty() && timestamp - advanceHistory.first().ts >= 4000) {
-                advanceHistory.removeFirst()
-            }
-            lastAdvanceTs = timestamp
+        val newIndex = windowStart + result.endIndex
+        val jump = newIndex - currentIndex
+        if (jump == 0) return
+
+        // A short step forward is the normal case and needs no extra proof.
+        // Leaping over a chunk of script, or backing up, has to be earned by a
+        // long clean phrase — otherwise off-script chatter drags the prompter away.
+        val strong = result.matchedWords >= STRONG_MATCH_WORDS && result.score >= STRONG_JUMP_SCORE
+        if (jump !in 1..MAX_QUIET_JUMP && !strong) return
+
+        if (jump < 0) advanceHistory.clear() // speed history is meaningless across a jump back
+        currentIndex = newIndex
+        advanceHistory.addLast(Advance(timestamp, newIndex))
+        // keep ~4s of history
+        while (advanceHistory.isNotEmpty() && timestamp - advanceHistory.first().ts >= 4000) {
+            advanceHistory.removeFirst()
         }
+        lastAdvanceTs = timestamp
     }
 
     /** Words-per-second estimated from recent advancement history. */
@@ -108,11 +138,15 @@ class ScriptMatcher(scriptText: String) {
     }
 
     companion object {
-        private const val LOOKAHEAD_WORDS = 60   // how far forward we're willing to jump
-        private const val LOOKBACK_WORDS = 8     // small backtrack allowance (repeated phrase)
+        private const val LOOKAHEAD_WORDS = 30   // how far forward we're willing to look
+        private const val LOOKBACK_WORDS = 12    // backtrack allowance (repeated phrase, retake)
         private const val SPOKEN_BUFFER_SIZE = 8 // how many recent spoken words we align with
         private const val PAUSE_MS = 1100        // no forward progress this long => stop scroll
         private const val SPEED_SMOOTHING = 0.15 // EMA factor for scroll speed (0..1)
+        private const val MIN_MATCHED_WORDS = 2  // never move on a single-word coincidence
+        private const val MAX_QUIET_JUMP = 12    // forward step accepted without extra evidence
+        private const val STRONG_MATCH_WORDS = 4 // words a long jump / backtrack must match
+        private const val STRONG_JUMP_SCORE = 26.0
 
         private fun now(): Long = System.currentTimeMillis()
     }
