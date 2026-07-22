@@ -23,6 +23,10 @@ Built to be commercialized as a simple paid app across multiple markets
   offline.
 - `speech/VoskSpeechRecognizer.kt` — continuous on-device recognition, emitting
   partial and final results.
+- `data/ScriptStore.kt` — the script library. One plain file per script, first
+  line as the title. No database and no serialisation library: scripts are text,
+  there are few of them, and files keep the store testable on the JVM and the
+  data readable if anything ever goes wrong.
 - `document/` — importing scripts. `DocumentImporter` reads a file the user
   picked through the storage access framework; `DocxExtractor` pulls text out of
   a .docx without any library (a Word file is a ZIP holding XML); `TextReflow`
@@ -61,6 +65,9 @@ The stage renders the script exactly as it is written, so blank lines and line
 breaks are how a speaker positions text on the panel. "One line per sentence"
 does the same job automatically and is the fastest way to make an imported wall
 of prose readable aloud.
+
+Scripts can be saved to an on-device library and reopened later; saving again
+updates the same entry rather than leaving a trail of copies.
 
 ## Building
 

@@ -2,6 +2,7 @@ package com.mikczemny.prompter.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,8 +22,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.WrapText
 import androidx.compose.material.icons.automirrored.outlined.Notes
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -35,8 +39,11 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -45,6 +52,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +69,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikczemny.prompter.BuildConfig
+import com.mikczemny.prompter.data.SavedScript
+import com.mikczemny.prompter.data.ScriptStore
 import com.mikczemny.prompter.document.DocumentImporter
 import com.mikczemny.prompter.document.oneSentencePerLine
 import com.mikczemny.prompter.match.splitWords
@@ -69,6 +79,9 @@ import com.mikczemny.prompter.speech.Languages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 
 /**
@@ -125,6 +138,13 @@ fun HomeScreen(
     var expanded by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
 
+    val store = remember { ScriptStore(File(context.filesDir, "scripts")) }
+    var showLibrary by remember { mutableStateOf(false) }
+    var savedScripts by remember { mutableStateOf(emptyList<SavedScript>()) }
+    // Which stored script the field currently holds, so saving again updates it
+    // instead of leaving a trail of near-identical copies.
+    var currentScriptId by rememberSaveable { mutableStateOf<String?>(null) }
+
     val text = script.text
     val wordCount = remember(text) { splitWords(text).size }
     val overSoftLimit = text.length > SOFT_CHAR_LIMIT
@@ -133,6 +153,24 @@ fun HomeScreen(
     fun replaceScript(newText: String) {
         script = TextFieldValue(newText.take(HARD_CHAR_LIMIT), TextRange(0))
         edited = true
+    }
+
+    fun saveScript() {
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                store.save(text = script.text, id = currentScriptId)
+            }
+            currentScriptId = saved.id
+            snackbarHostState.showSnackbar("Saved as \"${saved.title}\"")
+        }
+    }
+
+    // Reading the list is cheap, but it can go stale while the sheet is closed,
+    // so it is refreshed each time the library opens rather than cached.
+    LaunchedEffect(showLibrary) {
+        if (showLibrary) {
+            savedScripts = withContext(Dispatchers.IO) { store.list() }
+        }
     }
 
     fun insertAtCursor(snippet: String) {
@@ -249,7 +287,10 @@ fun HomeScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     FilledTonalButton(
                         onClick = { importLauncher.launch(DocumentImporter.SUPPORTED_MIME_TYPES) },
                         enabled = !importing,
@@ -257,14 +298,35 @@ fun HomeScreen(
                     ) {
                         Icon(Icons.Filled.FileOpen, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(if (importing) "Reading…" else "Import file")
+                        Text(if (importing) "Reading…" else "Import")
+                    }
+                    OutlinedButton(
+                        onClick = { saveScript() },
+                        enabled = text.isNotBlank() && !importing,
+                        shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Icon(Icons.Filled.SaveAlt, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save")
+                    }
+                    OutlinedButton(
+                        onClick = { showLibrary = true },
+                        shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Library")
                     }
                     OutlinedButton(
                         onClick = { replaceScript(oneSentencePerLine(text)) },
                         enabled = text.isNotBlank() && !importing,
                         shape = RoundedCornerShape(14.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.WrapText, null, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.AutoMirrored.Filled.WrapText,
+                            null,
+                            modifier = Modifier.size(18.dp),
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text("One line per sentence")
                     }
@@ -311,7 +373,90 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showLibrary) {
+        ModalBottomSheet(onDismissRequest = { showLibrary = false }) {
+            ScriptLibrary(
+                scripts = savedScripts,
+                onOpen = { saved ->
+                    replaceScript(saved.text)
+                    currentScriptId = saved.id
+                    showLibrary = false
+                },
+                onDelete = { saved ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { store.delete(saved.id) }
+                        if (currentScriptId == saved.id) currentScriptId = null
+                        savedScripts = withContext(Dispatchers.IO) { store.list() }
+                    }
+                },
+            )
+        }
+    }
 }
+
+@Composable
+private fun ScriptLibrary(
+    scripts: List<SavedScript>,
+    onOpen: (SavedScript) -> Unit,
+    onDelete: (SavedScript) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 28.dp),
+    ) {
+        Text(
+            "Saved scripts",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
+        if (scripts.isEmpty()) {
+            Text(
+                "Nothing saved yet. Press Save to keep the current script here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+            return@Column
+        }
+
+        scripts.forEachIndexed { index, saved ->
+            if (index > 0) HorizontalDivider()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onOpen(saved) }
+                        .padding(vertical = 14.dp),
+                ) {
+                    Text(saved.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                    Text(
+                        "${splitWords(saved.text).size} words · ${formatTimestamp(saved.updatedAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { onDelete(saved) }) {
+                    Icon(
+                        Icons.Filled.DeleteOutline,
+                        contentDescription = "Delete ${saved.title}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatTimestamp(millis: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 
 /**
  * Inserts punctuation and breaks at the cursor. Line breaks matter most: the
