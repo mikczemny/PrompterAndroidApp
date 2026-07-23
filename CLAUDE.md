@@ -114,6 +114,10 @@ working tree/indeksie gita.
   są opakowywane w `Handler(Looper.getMainLooper()).post { }`, zanim dotkną
   stanu Compose. Nowe callbacki dodawane w tym miejscu powinny trzymać się tej
   samej zasady.
+- `ScriptMatcher.visibleRange` musi być odświeżane przez UI co klatkę (patrz
+  pętla scrolla w `TeleprompterScreen`) — bez tego okno dopasowania nie wie, co
+  jest faktycznie widoczne na ekranie, i cofa się do zachowania sprzed
+  ograniczenia widocznością (2026-07-23, §10 w `PRZEGLAD-I-PLAN-WYDANIA.md`).
 - Ekran teleprompteru jest zawsze jasny-na-czarnym, niezależnie od motywu
   systemu (stałe `STAGE_*` w `TeleprompterScreen.kt`).
 

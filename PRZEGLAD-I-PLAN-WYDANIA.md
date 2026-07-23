@@ -13,11 +13,20 @@ Ten dzień domknął większość §2/§3 poniżej:
   `allowBackup=false` i wykluczenie katalogu skryptów z transferu D2D dołożone
   dzisiaj.
 - **P0-1, P0-2, P0-3 — naprawione.** Szczegóły w §2 poniżej, przy każdym punkcie.
-- **Dokumentacja** — ten plik, `docs/ARCHITECTURE.md` i `CLAUDE.md` scommitowane.
+- **Licencje modeli (§8) — zweryfikowane.** Wszystkie 11 modeli to Apache 2.0.
+  Szczegóły i rekomendacja w [docs/MODEL-LICENSES.md](docs/MODEL-LICENSES.md).
+- **Cztery funkcje z analizy open-prompter** — zacommitowane, w kolejności
+  wartości: filtrowanie dysfluencji ASR przed dopasowaniem, pasek postępu
+  czytania, ograniczenie okna dopasowania do widocznego fragmentu ekranu,
+  poszerzanie okna po >5s ciszy. Szczegóły w nowym §10 poniżej. Homofoniczne
+  zwijanie (z tej samej analizy) świadomie odłożone na później.
+- **Dokumentacja** — ten plik, `docs/ARCHITECTURE.md`, `docs/MODEL-LICENSES.md`
+  i `CLAUDE.md` scommitowane.
 - **Nadal otwarte:** `Language.sha256` jest `null` dla wszystkich 11 języków —
   mechanizm działa, ale nie pinuje niczego, dopóki ktoś nie policzy prawdziwych
-  sum (Alpha Cephei ich nie publikuje). Licencje modeli (§8) nadal niezweryfikowane.
-  Stringi UI (P1-1), audio focus (P1-2), signing/AAB/podział ABI (§6) — nietknięte.
+  sum (Alpha Cephei ich nie publikuje). Ekran „Licencje open source" (wymagany
+  teraz, gdy §8 jest zweryfikowane — patrz §10). Stringi UI (P1-1), audio focus
+  (P1-2), signing/AAB/podział ABI (§6) — nietknięte.
 
 Reszta tego dokumentu to oryginalny przegląd z 2026-07-22, zachowany bez zmian
 poza odnotowaniem statusu przy poszczególnych punktach — kontekst i uzasadnienia
@@ -375,20 +384,17 @@ danych sprzedażowych z Play.
 
 ## 8. Licencje modeli — sprawdzić przed sprzedażą
 
-**To jest potencjalny bloker prawny, nie techniczny.** Vosk (kod) jest na
-Apache 2.0. Ale **modele językowe mają różne licencje** — część jest na Apache
-2.0, część na licencjach niekomercyjnych lub wymagających atrybucji, zależnie od
-korpusu, na którym powstały.
+✅ **Zweryfikowane 2026-07-23.** Wszystkie 11 modeli "small" wpiętych w
+`Language.kt` to **Apache 2.0** — sprawdzone na stronie modeli Alpha Cephei,
+skrzyżowane z kartami modeli Hugging Face i plikiem `COPYING` silnika
+`vosk-api`. Brak klauzul niekomercyjnych czy share-alike w żadnym z nich. Pełna
+tabela i uzasadnienie w [docs/MODEL-LICENSES.md](docs/MODEL-LICENSES.md).
 
-Aplikacja ma być płatna i pobiera 11 różnych modeli. Przed publikacją trzeba
-**przejrzeć licencję każdego z osobna** na stronie modeli Alpha Cephei i:
-- usunąć z listy te, które nie pozwalają na użycie komercyjne,
-- dodać ekran „Licencje open source" z atrybucją dla pozostałych (potrzebny i tak
-  dla Voska, JNA i bibliotek AndroidX).
-
-Nie mam pewności co do statusu poszczególnych modeli i nie chcę zgadywać — to
-trzeba zweryfikować u źródła. Ale odkrycie tego po wydaniu płatnej aplikacji na
-11 rynków byłoby kosztowne. *(Nadal otwarte — nie ruszane 2026-07-23.)*
+**Rekomendacja: żaden język nie musi zniknąć z listy przed 1.0** — wybór
+języków na start powinien wynikać z dopasowania do rynku, nie z ryzyka
+licencyjnego. Apache 2.0 wymaga natomiast standardowej atrybucji przy
+redystrybucji: ekran „Licencje open source" z notą o Vosk/Alpha Cephei i
+linkiem do treści licencji. *(Ekran — nadal otwarte, patrz §10.)*
 
 ---
 
@@ -403,10 +409,53 @@ push, scalenie poprawek bezpieczeństwa, P0-1/P0-2/P0-3, dokumentacja)*
 3. ~~Własny `CLAUDE.md` i README z pułapką ścieżki ASCII~~ — ✅ zrobione (README
    nadal bez wzmianki o pułapce ścieżki w samym pliku, patrz §4 pkt 4).
 4. Wyniesienie stringów do `strings.xml` (P1-1) — im później, tym drożej.
-5. Weryfikacja licencji modeli (§8) — może wpłynąć na listę języków.
-6. Konfiguracja release: AAB, podpis, podział ABI (R8 już włączone).
-7. Polityka prywatności, Data safety, materiały do listingu.
-8. Ścieżka testów wewnętrznych → produkcja.
+5. ~~Weryfikacja licencji modeli (§8)~~ — ✅ zrobione, wynik: nic nie trzeba
+   usuwać z listy 11 języków.
+6. ~~Cztery funkcje z analizy open-prompter (§10)~~ — ✅ zrobione.
+7. Konfiguracja release: AAB, podpis, podział ABI (R8 już włączone).
+8. Polityka prywatności, Data safety, materiały do listingu.
+9. Ścieżka testów wewnętrznych → produkcja.
 
 Punkty 1–3 to solidny fundament i są teraz zrobione. Dopiero potem ma sens
 inwestowanie w listing i marketing, bo P0 z §2 zepsułyby pierwsze recenzje.
+
+---
+
+## 10. Funkcje z analizy open-prompter (2026-07-23)
+
+Cztery funkcje z wcześniejszego porównania z open-prompter, zrobione w
+kolejności wartości. Homofoniczne zwijanie (piąty punkt z tamtej analizy)
+świadomie odłożone jako kandydat na później — nie zaczęte.
+
+1. **Filtrowanie dysfluencji ASR przed dopasowaniem** (`match/TextMatcher.kt`
+   `isFillerWord`, użyte w `ScriptMatcher.pushTranscript`). Usuwa tylko czyste
+   dźwięki wahania (um, uh, erm i kilka odpowiedników fr/it/de/pl) z *mówionego*
+   strumienia przed dopasowaniem. Świadomie nie rusza słów, które bywają
+   potoczną wypełniaczem, ale mogą być realną treścią skryptu ("like", "so",
+   "well", "eh", "ah", "no").
+2. **Pasek postępu czytania** (`ui/TeleprompterScreen.kt`, `ReadingProgressBar`)
+   — cienka kreska przypięta do górnej krawędzi, rysowana jako ostatnia warstwa,
+   więc zostaje widoczna nawet nad overlayem odliczania/pobierania modelu.
+   Napędzana `MatchState.progress`, który matcher już liczył.
+3. **Okno dopasowania ograniczone do widocznego fragmentu ekranu**
+   (`ScriptMatcher.visibleRange`, aktualizowane co klatkę w
+   `TeleprompterScreen` z pozycji scrolla i `wordOffsets`). Słowo, które
+   dopasowuje się dobrze, ale jest poza ekranem, nie może wygrać dopasowania
+   niezależnie od wyniku — dodatkowe ograniczenie ponad istniejący
+   lookahead/lookback w słowach.
+4. **Poszerzanie okna po ciszy** (`WIDEN_AFTER_SILENCE_MS` / `WIDE_LOOKAHEAD_WORDS`
+   w `ScriptMatcher.tryAlign`) — po >5s bez potwierdzonego postępu okno
+   lookahead rośnie z 30 do 200 słów, żeby złapać świadomy skok mówcy (np.
+   przewinięcie ręką) bez potrzeby tap-to-jump. Próg "silnego skoku"
+   (`STRONG_MATCH_WORDS`/`STRONG_JUMP_SCORE`) zostaje bez zmian, więc to tylko
+   poszerza to, co aligner *widzi*, nie to, co jest gotów *zaakceptować*.
+
+13 nowych testów jednostkowych (`FillerWordTest`, `VisibleRangeTest`,
+`WidenOnSilenceTest`) w `ScriptMatcherTest.kt`. Przy pisaniu testu dla punktu 4
+wykryty i naprawiony błąd we własnym teście: sekwencyjne tokeny testowe typu
+"w1".."w60" fałszywie się dopasowywały przez fuzzy-matching (odległość
+edycyjna 1 między "w4" i "w46"), zamienione na jednoznacznie odrębne
+dwuliterowe tokeny.
+
+**Nadal otwarte z tej analizy:** ekran „Licencje open source" (wymagany teraz,
+gdy §8 jest zweryfikowane), homofoniczne zwijanie (odłożone).
