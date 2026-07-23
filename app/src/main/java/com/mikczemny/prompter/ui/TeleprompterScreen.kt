@@ -108,6 +108,9 @@ private const val DIM_ALPHA = 0.78f
 
 private const val COUNTDOWN_FROM = 3
 
+/** Height of the always-visible read-through progress bar at the top edge. */
+private val PROGRESS_BAR_HEIGHT = 3.dp
+
 /** Where the big Start/Stop button sits within the bottom control bar. */
 private enum class ButtonPos(val label: String) { LEFT("Left"), CENTER("Center"), RIGHT("Right") }
 
@@ -160,6 +163,9 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     var isListening by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var countdown by remember { mutableIntStateOf(0) }
+    // Read progress through the script, 0..1, from MatchState.progress — drives
+    // the thin always-visible bar at the top of the stage.
+    var progress by remember { mutableFloatStateOf(0f) }
 
     // Model download/prepare UI state (null = idle/ready).
     var modelStatus by remember { mutableStateOf<ModelStatus?>(null) }
@@ -201,6 +207,7 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                     val state = matcher.pushTranscript(text, isFinal, ts)
                     currentIndex = state.currentIndex
                     paused = state.paused
+                    progress = state.progress.toFloat()
                     val avgPxPerWord = contentHeight / max(words.size, 1)
                     val targetPxPerSec = state.wordsPerSecond.toFloat() * avgPxPerWord
                     velocity.floatValue = min(PX_PER_SEC_MAX, max(0f, targetPxPerSec))
@@ -259,6 +266,7 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
         currentIndex = index
         paused = true
         velocity.floatValue = 0f
+        progress = if (words.isEmpty()) 0f else (index + 1).toFloat() / words.size
     }
 
     // Smooth scroll loop: blends velocity-based motion with position correction
@@ -420,6 +428,11 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
             modelStatus?.let { status ->
                 ModelStatusOverlay(language = language, status = status)
             }
+
+            // Thin, always-on read-through indicator pinned to the top edge —
+            // drawn last so it stays visible over the countdown and model
+            // status overlays too, not just the reading stage.
+            ReadingProgressBar(progress = progress, modifier = Modifier.align(Alignment.TopCenter))
         }
     }
 
@@ -447,6 +460,30 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                 onButtonPos = { buttonPos = it },
             )
         }
+    }
+}
+
+/**
+ * Thin bar pinned to the top edge showing how far through the script the
+ * speaker has read. Deliberately minimal — a hairline, not a Material
+ * progress control — so it reads at a glance without competing with the
+ * script for attention, and stays visible regardless of what else is on
+ * screen (settings sheet aside, since that's a deliberate full takeover).
+ */
+@Composable
+private fun ReadingProgressBar(progress: Float, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(PROGRESS_BAR_HEIGHT)
+            .background(StageColors.PanelRaised),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .background(StageColors.Live),
+        )
     }
 }
 
