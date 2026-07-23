@@ -109,16 +109,21 @@ shipping; unit tests will not catch this class of failure.
 
 The downloaded model archive is the app's only untrusted input, and it is
 unpacked and then handed to native code. `VoskModelManager` therefore requires
-HTTPS (including after redirects), rejects archive entries whose paths escape
-the target directory, and caps the unpacked size and entry count. Models are
-excluded from cloud backup and device transfer — they are large and freely
-re-downloadable.
+HTTPS (including after redirects), verifies a SHA-256 checksum when one is
+pinned for that language, rejects archive entries whose paths escape the
+target directory, caps the unpacked size and entry count, and confirms the
+result actually looks like a Vosk model (a `conf/` directory) before it is
+ever loaded. Backup is disabled entirely (`allowBackup=false`); the
+per-Android-version exclusion rules for models and saved scripts are kept in
+sync anyway so nothing is silently exposed if that ever changes.
 
 ## Roadmap toward release
 
 - Localize the app's own UI chrome per market (currently English).
 - Persist the last-used language; optionally pre-select the device locale.
-- Verify the model archives by checksum, so a compromised host cannot swap them.
+- Collect and pin the real SHA-256 for each language's model archive — the
+  verification code is in place (`Language.sha256`) but every entry is still
+  `null`, so nothing is actually checked against a known-good value yet.
 - CJK (Chinese/Japanese) matching works at character level but benefits from
   real-world tuning of the alignment thresholds per script.
 - Play Store: signing config, Play Asset Delivery vs. current on-demand

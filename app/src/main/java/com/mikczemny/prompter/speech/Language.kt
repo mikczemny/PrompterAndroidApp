@@ -14,6 +14,9 @@ data class Language(
     val modelUrl: String,      // Vosk small model zip
     val approxMb: Int,         // download size hint for the UI
     val sample: String,        // starter script in this language
+    // SHA-256 of the model zip, lower-case hex. Null skips verification — fill
+    // in as sums are collected so downloads become checkable end to end.
+    val sha256: String? = null,
 )
 
 object Languages {

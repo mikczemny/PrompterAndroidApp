@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Android 12+ equivalent of backup_rules.xml, covering both cloud backup and
-  device-to-device transfer. Language models are re-downloadable, so they are
-  excluded from each.
+  device-to-device transfer. allowBackup="false" in the manifest already turns
+  both off entirely, which is why models and scripts never actually reach
+  Google's backup today; these rules are kept in sync anyway so nothing here
+  is silently exposed again if allowBackup is ever flipped back to true.
+  Language models are re-downloadable, so they are excluded from each; scripts
+  are the user's own unpublished writing and have no reason to leave the
+  device either.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="models" />
+        <exclude domain="file" path="scripts" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="models" />
+        <exclude domain="file" path="scripts" />
     </device-transfer>
 </data-extraction-rules>

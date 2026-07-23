@@ -6,6 +6,7 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
 /**
@@ -27,7 +28,12 @@ sealed interface ModelStatus {
 
 object VoskModelManager {
 
-    private val loaded = HashMap<String, Model>()
+    // Only one language's Model is ever kept loaded. Each is tens of MB of
+    // native memory owned by JNA/Kaldi, not the JVM heap, so the garbage
+    // collector can't reclaim a stale entry on its own — switching languages
+    // within a session must explicitly release the previous one instead of
+    // accumulating one per language ever used.
+    private var current: Pair<String, Model>? = null
 
     private fun modelDir(context: Context, lang: Language): File =
         File(File(context.filesDir, "models"), lang.code)
@@ -51,7 +57,7 @@ object VoskModelManager {
         lang: Language,
         onStatus: (ModelStatus) -> Unit = {},
     ): Model {
-        loaded[lang.code]?.let { return it }
+        current?.let { (code, model) -> if (code == lang.code) return model }
 
         val dir = modelDir(context, lang)
         if (!isModelReady(context, lang)) {
@@ -59,7 +65,11 @@ object VoskModelManager {
         }
         onStatus(ModelStatus.Preparing) // loading from disk, no network
         val model = Model(dir.absolutePath)
-        loaded[lang.code] = model
+        // Only swap in the new model — and release the old one — once loading
+        // the new one has actually succeeded, so a bad load can't strand the
+        // manager without the previously-working model.
+        current?.second?.close()
+        current = lang.code to model
         return model
     }
 
@@ -86,6 +96,10 @@ object VoskModelManager {
                 throw IOException("HTTP ${connection.responseCode} pobierając model")
             }
             val total = connection.contentLengthLong
+            // Hashed while it streams, not after, so a multi-hundred-MB model
+            // is never read into memory or off disk a second time just to
+            // verify it.
+            val digest = MessageDigest.getInstance("SHA-256")
             connection.inputStream.use { input ->
                 tmpZip.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
@@ -95,6 +109,7 @@ object VoskModelManager {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
+                        digest.update(buffer, 0, n)
                         readTotal += n
 
                         // Report only when the whole number of percent changes.
@@ -112,6 +127,13 @@ object VoskModelManager {
                 }
             }
 
+            lang.sha256?.let { expected ->
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!actual.equals(expected, ignoreCase = true)) {
+                    throw IOException("Model archive checksum mismatch for ${lang.code}")
+                }
+            }
+
             onStatus(ModelStatus.Preparing) // unpacking
             // Unpack into a temp dir first, then atomically swap in, so an
             // interrupted download never leaves a half-written model behind.
@@ -119,6 +141,13 @@ object VoskModelManager {
             if (stagingDir.exists()) stagingDir.deleteRecursively()
             stagingDir.mkdirs()
             unzipStrippingTopFolder(tmpZip, stagingDir)
+
+            // A zip that unpacks cleanly but isn't actually a Vosk model would
+            // otherwise be handed straight to native code.
+            if (!File(stagingDir, "conf").isDirectory) {
+                stagingDir.deleteRecursively()
+                throw IOException("Downloaded archive is not a valid Vosk model (missing conf/)")
+            }
 
             if (dir.exists()) dir.deleteRecursively()
             if (!stagingDir.renameTo(dir)) {
