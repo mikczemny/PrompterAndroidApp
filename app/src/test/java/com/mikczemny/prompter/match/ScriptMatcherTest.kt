@@ -306,3 +306,97 @@ class FillerWordTest {
         assertEquals(indexOfWord("three"), withFiller.getState().currentIndex)
     }
 }
+
+class VisibleRangeTest {
+
+    @Test
+    fun `a match outside the visible range cannot win regardless of score`() {
+        val matcher = ScriptMatcher(SCRIPT)
+        matcher.jumpTo(2) // reading around "three"
+        // Only "one".."foxtrot" (indices 0..10) are on screen right now.
+        matcher.visibleRange = 0..10
+
+        // This phrase would normally jump the pointer to "november" (see
+        // "a long clean phrase can skip forward" above) but it's scrolled
+        // off-screen, so the match must not be allowed to win.
+        val state = matcher.pushTranscript("kilo lima mike november")
+
+        assertEquals(2, state.currentIndex)
+    }
+
+    @Test
+    fun `the same phrase wins once it is inside the visible range`() {
+        val matcher = ScriptMatcher(SCRIPT)
+        matcher.jumpTo(2)
+        matcher.visibleRange = 0..20 // now covers through "november"
+
+        val state = matcher.pushTranscript("kilo lima mike november")
+
+        assertEquals(indexOfWord("november"), state.currentIndex)
+    }
+
+    @Test
+    fun `a null visible range leaves matching unrestricted`() {
+        val matcher = ScriptMatcher(SCRIPT)
+        matcher.jumpTo(2) // visibleRange is null by default, before any layout pass
+
+        val state = matcher.pushTranscript("kilo lima mike november")
+
+        assertEquals(indexOfWord("november"), state.currentIndex)
+    }
+}
+
+class WidenOnSilenceTest {
+
+    // Distinct two-letter tokens rather than "w1", "w2", ... — sequential
+    // numeric suffixes are only a one-character edit apart (e.g. "w4"/"w46"),
+    // which the fuzzy word-similarity scorer treats as a weak match and would
+    // contaminate results all over the script. Any two distinct tokens built
+    // this way differ by at least one full letter out of two, keeping their
+    // similarity below MATCH_SIM_THRESHOLD so only an exact word ever counts.
+    private val longScript = (0 until 60).joinToString(" ") { i ->
+        "${'a' + i / 26}${'a' + i % 26}"
+    }
+    private val longTokens = longScript.split(" ")
+
+    // Indices 45..48 — well past the normal LOOKAHEAD_WORDS(30) window ahead
+    // of index 0, but within WIDE_LOOKAHEAD_WORDS(200).
+    private val distantPhrase = longTokens.subList(45, 49).joinToString(" ")
+
+    @Test
+    fun `without silence a distant phrase stays out of reach`() {
+        val matcher = ScriptMatcher(longScript)
+        matcher.jumpTo(0)
+
+        val state = matcher.pushTranscript(distantPhrase)
+
+        assertEquals(0, state.currentIndex)
+    }
+
+    /**
+     * More than five seconds without a confirmed advance signals the speaker
+     * paused and moved on by themselves — the lookahead widens so the
+     * prompter can catch up without a manual tap.
+     */
+    @Test
+    fun `after 5s of silence the lookahead widens enough to catch a deliberate skip`() {
+        val matcher = ScriptMatcher(longScript)
+        matcher.jumpTo(0)
+        val farTimestamp = System.currentTimeMillis() + 6000
+
+        val state = matcher.pushTranscript(distantPhrase, timestamp = farTimestamp)
+
+        assertEquals(48, state.currentIndex)
+    }
+
+    @Test
+    fun `a short pause under 5s does not widen the lookahead`() {
+        val matcher = ScriptMatcher(longScript)
+        matcher.jumpTo(0)
+        val nearTimestamp = System.currentTimeMillis() + 2000
+
+        val state = matcher.pushTranscript(distantPhrase, timestamp = nearTimestamp)
+
+        assertEquals(0, state.currentIndex)
+    }
+}

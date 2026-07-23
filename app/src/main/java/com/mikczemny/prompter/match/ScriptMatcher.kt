@@ -28,6 +28,16 @@ class ScriptMatcher(scriptText: String) {
      */
     val tokenOffsets: IntArray = IntArray(tokens.size) { tokens[it].start }
 
+    /**
+     * Token indices currently visible in the viewport, in script-token index
+     * space. Refreshed by the UI every frame from scroll position + layout.
+     * Alignment never returns an index outside this range — a word that
+     * isn't actually on screen can't win a match regardless of score. Null
+     * (the default, and the state before the first layout pass) means
+     * unrestricted.
+     */
+    var visibleRange: IntRange? = null
+
     private var currentIndex: Int = -1          // last confirmed matched word (-1 = not started)
     private val spokenBuffer = ArrayDeque<String>() // rolling window of normalized spoken words
     // Vosk re-sends the whole in-progress utterance on every partial result, so
@@ -86,8 +96,24 @@ class ScriptMatcher(scriptText: String) {
     }
 
     private fun tryAlign(timestamp: Long) {
-        val windowStart = maxOf(0, currentIndex + 1 - LOOKBACK_WORDS)
-        val windowEnd = minOf(tokens.size, currentIndex + 1 + LOOKAHEAD_WORDS)
+        // A long silence after the last confirmed advance usually means the
+        // speaker paused and then deliberately moved on — dragged the script,
+        // skipped a paragraph, whatever. The normal lookahead is kept narrow
+        // so ordinary speech can't leap across the page on a coincidence, but
+        // widening it here lets a genuine skip resolve on its own instead of
+        // requiring a manual tap. The "strong jump" evidence bar below is
+        // unaffected, so this only expands what the aligner can *see*, not
+        // what it's willing to *accept*.
+        val lookahead =
+            if (timestamp - lastAdvanceTs > WIDEN_AFTER_SILENCE_MS) WIDE_LOOKAHEAD_WORDS
+            else LOOKAHEAD_WORDS
+
+        var windowStart = maxOf(0, currentIndex + 1 - LOOKBACK_WORDS)
+        var windowEnd = minOf(tokens.size, currentIndex + 1 + lookahead)
+        visibleRange?.let { visible ->
+            windowStart = maxOf(windowStart, visible.first)
+            windowEnd = minOf(windowEnd, visible.last + 1)
+        }
         if (windowStart >= windowEnd) return
 
         val scriptWindow = tokens.subList(windowStart, windowEnd).map { it.norm }
@@ -146,6 +172,8 @@ class ScriptMatcher(scriptText: String) {
 
     companion object {
         private const val LOOKAHEAD_WORDS = 30   // how far forward we're willing to look
+        private const val WIDE_LOOKAHEAD_WORDS = 200 // after a long silence (see WIDEN_AFTER_SILENCE_MS)
+        private const val WIDEN_AFTER_SILENCE_MS = 5000L
         private const val LOOKBACK_WORDS = 12    // backtrack allowance (repeated phrase, retake)
         private const val SPOKEN_BUFFER_SIZE = 8 // how many recent spoken words we align with
         private const val PAUSE_MS = 1100        // no forward progress this long => stop scroll

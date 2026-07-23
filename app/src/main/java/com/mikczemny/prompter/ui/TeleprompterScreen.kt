@@ -136,6 +136,22 @@ private fun tokenIndexForOffset(starts: IntArray, offset: Int): Int {
     return found
 }
 
+/**
+ * First index in [offsets] (sorted ascending, per-token line-top Y positions)
+ * whose value is >= [y]. Returns [offsets].size if every entry is smaller.
+ * Used to turn the current scroll position into a range of visible token
+ * indices, so the matcher can be told which words are actually on screen.
+ */
+private fun firstIndexAtOrAfter(offsets: FloatArray, y: Float): Int {
+    var low = 0
+    var high = offsets.size
+    while (low < high) {
+        val mid = (low + high) / 2
+        if (offsets[mid] < y) low = mid + 1 else high = mid
+    }
+    return low
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
@@ -295,6 +311,20 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                 val next = (scrollState.value + velocityStep + correction)
                     .coerceIn(0f, scrollState.maxValue.toFloat())
                 scrollState.dispatchRawDelta(next - scrollState.value)
+
+                // Tell the matcher which words are actually on screen, so a
+                // match further down the script can't win while it's still
+                // scrolled out of view. Skipped until the first layout pass
+                // has populated wordOffsets (all-NaN before that).
+                if (wordOffsets.isNotEmpty() && !wordOffsets[0].isNaN()) {
+                    val visibleTop = scrollState.value.toFloat()
+                    val visibleBottom = visibleTop + viewportHeight
+                    val first = firstIndexAtOrAfter(wordOffsets, visibleTop)
+                        .coerceIn(0, wordOffsets.size - 1)
+                    val last = (firstIndexAtOrAfter(wordOffsets, visibleBottom) - 1)
+                        .coerceIn(first, wordOffsets.size - 1)
+                    matcher.visibleRange = first..last
+                }
             }
         }
     }
