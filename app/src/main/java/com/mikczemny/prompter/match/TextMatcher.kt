@@ -65,6 +65,33 @@ fun normalizeWord(w: String): String {
         .replace(NON_WORD, "")
 }
 
+// ---------- ASR disfluency filtering -----------------------------------
+
+/**
+ * Non-lexical hesitation sounds Vosk sometimes transcribes literally. These
+ * are stripped from the *spoken* stream before alignment so a stray "um"
+ * doesn't cost the matcher a gap penalty or crowd a real word out of the
+ * (small) alignment buffer.
+ *
+ * Deliberately narrow: only sounds with no meaning of their own. Words that
+ * double as filler in casual speech but can legitimately appear as written
+ * script content — "like", "so", "well", "eh", "ah", "no" — are left alone on
+ * purpose; stripping those would silently eat real lines in some scripts.
+ * Entries are already run through [normalizeWord] (lower-cased, accents and
+ * punctuation stripped), matching how spoken words are compared.
+ */
+private val FILLER_WORDS = setOf(
+    // English
+    "um", "umm", "uhm", "uh", "uhh", "erm",
+    "euh",  // French
+    "ehm",  // Italian
+    "ahm",  // German "ähm" once diacritics are stripped
+    "yyy", "eee", // Polish written hesitation
+)
+
+/** True for a normalized word that is pure ASR hesitation noise, not content. */
+fun isFillerWord(normalized: String): Boolean = normalized in FILLER_WORDS
+
 // ---------- Script tokenization ---------------------------------------
 
 /**

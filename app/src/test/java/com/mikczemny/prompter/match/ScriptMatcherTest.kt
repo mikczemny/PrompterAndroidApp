@@ -272,3 +272,37 @@ class TextMatcherTest {
         assertEquals(1, requireNotNull(result).endIndex)
     }
 }
+
+class FillerWordTest {
+
+    @Test
+    fun `pure disfluency sounds are recognized as filler`() {
+        listOf(
+            "um", "umm", "uhm", "uh", "uhh", "erm", "euh", "ehm", "ahm", "yyy", "eee",
+        ).forEach { assertTrue("'$it' should be a filler word", isFillerWord(it)) }
+    }
+
+    /**
+     * These double as filler in casual speech but can be real scripted lines
+     * ("So, welcome back." / "It's, like, a big deal."), so they must survive
+     * untouched even though a naive filler list would be tempted to include
+     * them.
+     */
+    @Test
+    fun `casual words that can be real script content are not filtered`() {
+        listOf("like", "so", "well", "eh", "ah", "no")
+            .forEach { assertTrue("'$it' should not be treated as filler", !isFillerWord(it)) }
+    }
+
+    @Test
+    fun `a filler word inserted mid-utterance does not disrupt tracking`() {
+        val withFiller = ScriptMatcher(SCRIPT)
+        withFiller.pushTranscript("one um two three")
+
+        val clean = ScriptMatcher(SCRIPT)
+        clean.pushTranscript("one two three")
+
+        assertEquals(clean.getState().currentIndex, withFiller.getState().currentIndex)
+        assertEquals(indexOfWord("three"), withFiller.getState().currentIndex)
+    }
+}

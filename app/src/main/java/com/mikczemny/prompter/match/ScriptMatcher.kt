@@ -63,7 +63,7 @@ class ScriptMatcher(scriptText: String) {
     fun pushTranscript(text: String, isFinal: Boolean = true, timestamp: Long = now()): MatchState {
         val words = splitWords(text)
             .map { normalizeWord(it) }
-            .filter { it.isNotEmpty() }
+            .filter { it.isNotEmpty() && !isFillerWord(it) }
 
         // Vosk revises hypotheses, so compare against the last partial rather
         // than assuming the new one is a strict extension.
