@@ -2,6 +2,8 @@ package com.mikczemny.prompter.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -184,20 +186,29 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
 
     val scrollState = rememberScrollState()
 
+    // Vosk delivers every callback (results, errors, listening state, model
+    // status) from its own background/audio thread, never the main thread.
+    // Compose state can only be written safely from the composition's thread,
+    // so every callback below hops back onto it via this handler instead of
+    // writing MutableState directly from wherever Vosk happens to call in.
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
     val recognizer = remember(script, language) {
         VoskSpeechRecognizer(
             context = context,
             onResult = { text, isFinal, ts ->
-                val state = matcher.pushTranscript(text, isFinal, ts)
-                currentIndex = state.currentIndex
-                paused = state.paused
-                val avgPxPerWord = contentHeight / max(words.size, 1)
-                val targetPxPerSec = state.wordsPerSecond.toFloat() * avgPxPerWord
-                velocity.floatValue = min(PX_PER_SEC_MAX, max(0f, targetPxPerSec))
+                mainHandler.post {
+                    val state = matcher.pushTranscript(text, isFinal, ts)
+                    currentIndex = state.currentIndex
+                    paused = state.paused
+                    val avgPxPerWord = contentHeight / max(words.size, 1)
+                    val targetPxPerSec = state.wordsPerSecond.toFloat() * avgPxPerWord
+                    velocity.floatValue = min(PX_PER_SEC_MAX, max(0f, targetPxPerSec))
+                }
             },
-            onError = { msg -> errorMsg = msg },
-            onListeningChanged = { listening -> isListening = listening },
-            onModelStatus = { status -> modelStatus = status },
+            onError = { msg -> mainHandler.post { errorMsg = msg } },
+            onListeningChanged = { listening -> mainHandler.post { isListening = listening } },
+            onModelStatus = { status -> mainHandler.post { modelStatus = status } },
         )
     }
 

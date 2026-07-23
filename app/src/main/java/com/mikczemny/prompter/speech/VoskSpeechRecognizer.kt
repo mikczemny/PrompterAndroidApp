@@ -24,8 +24,20 @@ class VoskSpeechRecognizer(
     /** Non-null while a model is being fetched/prepared; null when idle/ready. */
     private val onModelStatus: (status: ModelStatus?) -> Unit = {},
 ) {
+    @Volatile
     private var speechService: SpeechService? = null
+
+    @Volatile
+    private var recognizer: Recognizer? = null
+
     private var lastPartial: String = ""
+
+    // Guards the start/stop critical section: start() checks cancelRequested
+    // and publishes speechService/recognizer as one atomic step, and stop()
+    // tears them down as another, so a Stop tap can never land in the gap
+    // between "decided to start" and "assigned the service" and leave the mic
+    // open with the UI showing idle.
+    private val lifecycleLock = Any()
 
     @Volatile
     private var cancelRequested: Boolean = false
@@ -82,17 +94,33 @@ class VoskSpeechRecognizer(
                 }
                 onModelStatus(null)
 
-                // User tapped Stop while the model was still downloading/loading.
-                if (cancelRequested) {
+                val rec = Recognizer(model, SAMPLE_RATE)
+                val service = SpeechService(rec, SAMPLE_RATE)
+
+                // Check-publish-start all happen inside the same lock stop()
+                // uses, so a Stop tap can never land between "decided to
+                // start" and "mic actually opened" — either it sees the
+                // service fully live and stops it, or it lands first and this
+                // thread aborts before startListening() ever runs.
+                val startedListening = synchronized(lifecycleLock) {
+                    if (cancelRequested) {
+                        false
+                    } else {
+                        recognizer = rec
+                        speechService = service
+                        service.startListening(listener)
+                        isListening = true
+                        true
+                    }
+                }
+
+                if (!startedListening) {
+                    service.shutdown()
+                    rec.close()
                     onListeningChanged(false)
                     return@Thread
                 }
 
-                val recognizer = Recognizer(model, SAMPLE_RATE)
-                val service = SpeechService(recognizer, SAMPLE_RATE)
-                service.startListening(listener)
-                speechService = service
-                isListening = true
                 onListeningChanged(true)
             } catch (t: Throwable) {
                 onModelStatus(null)
@@ -104,12 +132,16 @@ class VoskSpeechRecognizer(
 
     fun stop() {
         cancelRequested = true
-        speechService?.let { service ->
-            service.stop()
-            service.shutdown()
+        synchronized(lifecycleLock) {
+            speechService?.let { service ->
+                service.stop()
+                service.shutdown()
+            }
+            recognizer?.close()
+            speechService = null
+            recognizer = null
+            isListening = false
         }
-        speechService = null
-        isListening = false
         lastPartial = ""
         onModelStatus(null)
         onListeningChanged(false)
