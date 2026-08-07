@@ -23,7 +23,15 @@ class VoskSpeechRecognizer(
     private val onListeningChanged: (listening: Boolean) -> Unit = {},
     /** Non-null while a model is being fetched/prepared; null when idle/ready. */
     private val onModelStatus: (status: ModelStatus?) -> Unit = {},
+    /**
+     * Fired when recognition is torn down because the system audio path was
+     * taken over (call, assistant, another recorder) rather than by a user Stop.
+     * Listening has already ended by the time this runs.
+     */
+    private val onInterrupted: () -> Unit = {},
 ) {
+    private val audioFocus = AudioFocusManager(context)
+
     @Volatile
     private var speechService: SpeechService? = null
 
@@ -121,6 +129,11 @@ class VoskSpeechRecognizer(
                     return@Thread
                 }
 
+                // Hold focus for its loss callback: if anything else grabs the
+                // audio path, tear down so the mic is released and the UI stops
+                // claiming it is tracking.
+                audioFocus.request { handleInterruption() }
+
                 onListeningChanged(true)
             } catch (t: Throwable) {
                 onModelStatus(null)
@@ -132,6 +145,7 @@ class VoskSpeechRecognizer(
 
     fun stop() {
         cancelRequested = true
+        audioFocus.abandon()
         synchronized(lifecycleLock) {
             speechService?.let { service ->
                 service.stop()
@@ -145,6 +159,17 @@ class VoskSpeechRecognizer(
         lastPartial = ""
         onModelStatus(null)
         onListeningChanged(false)
+    }
+
+    /**
+     * Handles the audio path being taken over mid-session: stops recognition
+     * (releasing the mic) and reports the interruption, but only once per live
+     * session, since focus loss can fire more than once.
+     */
+    private fun handleInterruption() {
+        if (!isListening) return
+        stop()
+        onInterrupted()
     }
 
     private fun extractField(json: String, field: String): String {

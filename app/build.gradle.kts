@@ -81,6 +81,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("androidx.activity:activity-compose:1.12.4")
 
+    // Audio-focus compat: gives a single API for requesting/abandoning focus
+    // across minSdk 24, used only as an interruption signal for recognition.
+    implementation("androidx.media:media:1.7.0")
+
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")

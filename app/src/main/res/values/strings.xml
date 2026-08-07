@@ -48,6 +48,7 @@
 
     <!-- Teleprompter stage -->
     <string name="mic_permission_denied">Microphone permission denied — the prompter can\'t follow your voice.</string>
+    <string name="recording_interrupted">Recording interrupted — another app took the microphone. Tap Start to resume.</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="get_ready">Get ready…</string>

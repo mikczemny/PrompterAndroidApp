@@ -239,6 +239,11 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
             onError = { msg -> mainHandler.post { errorMsg = msg } },
             onListeningChanged = { listening -> mainHandler.post { isListening = listening } },
             onModelStatus = { status -> mainHandler.post { modelStatus = status } },
+            onInterrupted = {
+                mainHandler.post {
+                    errorMsg = context.getString(R.string.recording_interrupted)
+                }
+            },
         )
     }
 
