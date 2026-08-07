@@ -11,6 +11,10 @@ build/
 *.apk
 *.aab
 *.keystore
+*.jks
+
+# Upload-signing credentials — never commit the keystore or its passwords.
+/keystore.properties
 
 # Reference prototype (kept locally, not part of the app build)
 /src_extracted/

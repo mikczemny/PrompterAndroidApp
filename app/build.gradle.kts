@@ -19,6 +19,17 @@ val appVersionName: String = versionProps.getProperty("VERSION_NAME")
 val appVersionCode: Int = versionProps.getProperty("VERSION_CODE")?.toIntOrNull()
     ?: error("VERSION_CODE missing or not a number in version.properties")
 
+// Upload-signing credentials live in keystore.properties at the repo root,
+// which is gitignored — the keystore and its passwords must never enter git.
+// When the file is absent (CI, a fresh clone, anyone without the upload key)
+// the release build simply stays unsigned rather than failing, so assembleDebug
+// and CI keep working. See keystore.properties.example for the expected keys.
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProps.getProperty("storeFile") != null
+
 android {
     namespace = "com.mikczemny.prompter"
     compileSdk = 36
@@ -33,6 +44,20 @@ android {
         versionName = appVersionName
     }
 
+    signingConfigs {
+        // Only created when keystore.properties is present; the release build
+        // below picks it up via findByName, so its absence leaves the build
+        // unsigned instead of breaking.
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // See proguard-rules.pro: Vosk's JNA bridge has to be kept by hand.
@@ -42,7 +67,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
         }
+    }
+
+    // Ship an App Bundle to Play and let it deliver only what each device needs.
+    // The four native ABIs of libvosk/libjnidispatch are what make a universal
+    // APK ~107 MB; with per-ABI splits a device downloads roughly a third of it.
+    bundle {
+        abi { enableSplit = true }
+        density { enableSplit = true }
+        language { enableSplit = true }
     }
 
     compileOptions {
