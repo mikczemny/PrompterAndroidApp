@@ -397,13 +397,25 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                                     // box, so fall back to the rest of the line.
                                     val right = layout.getHorizontalPosition(end, true)
                                         .let { if (it <= left) layout.getLineRight(line) else it }
-                                    val pad = 5.dp.toPx()
+                                    val pad = 6.dp.toPx()
 
+                                    // Backlit pill behind the last recognized word. Painted
+                                    // stronger than a hint: on stage, at distance, the whole
+                                    // point is to see at a glance which word was just heard.
                                     drawRoundRect(
-                                        color = StageColors.Live.copy(alpha = 0.20f),
+                                        color = StageColors.Live.copy(alpha = 0.32f),
                                         topLeft = Offset(left - pad, top),
                                         size = Size(right - left + pad * 2, bottom - top),
-                                        cornerRadius = CornerRadius(8.dp.toPx()),
+                                        cornerRadius = CornerRadius(10.dp.toPx()),
+                                    )
+                                    // Solid underline pins the exact word, so the eye reads a
+                                    // single marked word rather than just a lit line.
+                                    val underline = 3.dp.toPx()
+                                    drawRoundRect(
+                                        color = StageColors.Live,
+                                        topLeft = Offset(left - pad, bottom - underline),
+                                        size = Size(right - left + pad * 2, underline),
+                                        cornerRadius = CornerRadius(underline / 2f),
                                     )
                                 }
                                 // Tap any word to read from there — the fast way to
