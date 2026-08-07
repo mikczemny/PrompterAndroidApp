@@ -82,4 +82,11 @@
     <string name="model_loading">Loading %s…</string>
     <string name="model_downloading_subtitle">One-time, ~%d MB. Works fully offline afterwards.</string>
     <string name="model_loading_subtitle">Preparing offline recognition…</string>
+
+    <!-- Open source licenses -->
+    <string name="licenses">Open source licenses</string>
+    <string name="licenses_intro">Prompter is built on open source software. The speech recognition engine and every downloadable language pack come from Vosk / Alpha Cephei under the Apache License 2.0.</string>
+    <string name="licenses_components">Components</string>
+    <string name="license_apache">Apache License 2.0</string>
+    <string name="licenses_full_text_title">Apache License 2.0</string>
 </resources>

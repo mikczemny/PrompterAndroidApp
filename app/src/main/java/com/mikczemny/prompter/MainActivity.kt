@@ -11,6 +11,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.mikczemny.prompter.speech.Languages
 import com.mikczemny.prompter.ui.HomeScreen
+import com.mikczemny.prompter.ui.LicensesScreen
 import com.mikczemny.prompter.ui.TeleprompterScreen
 import com.mikczemny.prompter.ui.theme.PrompterTheme
 
@@ -35,18 +36,22 @@ private fun PrompterApp() {
     // ever happens when someone is already on camera.
     var script by rememberSaveable { mutableStateOf<String?>(null) }
     var languageCode by rememberSaveable { mutableStateOf(Languages.DEFAULT.code) }
+    var showLicenses by rememberSaveable { mutableStateOf(false) }
 
     val currentScript = script
-    if (currentScript == null) {
-        HomeScreen(
+    when {
+        showLicenses -> LicensesScreen(onBack = { showLicenses = false })
+
+        currentScript == null -> HomeScreen(
             initialLanguage = Languages.byCode(languageCode),
             onStart = { text, language ->
                 languageCode = language.code
                 script = text
             },
+            onOpenLicenses = { showLicenses = true },
         )
-    } else {
-        TeleprompterScreen(
+
+        else -> TeleprompterScreen(
             script = currentScript,
             language = Languages.byCode(languageCode),
             onBack = { script = null },

@@ -128,6 +128,7 @@ private val QUICK_INSERTS = listOf(
 fun HomeScreen(
     initialLanguage: Language = Languages.DEFAULT,
     onStart: (script: String, language: Language) -> Unit,
+    onOpenLicenses: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -379,11 +380,25 @@ fun HomeScreen(
                     overSoftLimit = overSoftLimit,
                 )
 
-                Text(
-                    text = stringResource(R.string.version, BuildConfig.VERSION_NAME),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.version, BuildConfig.VERSION_NAME),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.licenses),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(onClick = onOpenLicenses)
+                            .padding(vertical = 4.dp),
+                    )
+                }
 
                 Spacer(Modifier.height(4.dp))
             }
