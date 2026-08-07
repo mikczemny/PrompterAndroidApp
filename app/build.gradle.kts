@@ -120,6 +120,10 @@ dependencies {
     // across minSdk 24, used only as an interruption signal for recognition.
     implementation("androidx.media:media:1.7.0")
 
+    // DocumentFile wraps the Storage Access Framework tree the user picks as
+    // their recordings folder — list/create/delete without a storage permission.
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")

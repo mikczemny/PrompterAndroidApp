@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,10 +29,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,6 +59,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -79,12 +84,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mikczemny.prompter.R
+import com.mikczemny.prompter.data.RecordingStore
 import com.mikczemny.prompter.match.ScriptMatcher
 import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.speech.ModelStatus
 import com.mikczemny.prompter.speech.VoskSpeechRecognizer
 import com.mikczemny.prompter.ui.theme.StageColors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -193,6 +206,16 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     // Model download/prepare UI state (null = idle/ready).
     var modelStatus by remember { mutableStateOf<ModelStatus?>(null) }
 
+    // Audio recording: the recognizer tees the mic stream to a WAV file while it
+    // tracks. Recording follows tracking automatically — it starts with the mic
+    // and, when tracking ends, the finished file waits in pendingRecording for
+    // the keep/discard choice before it is saved anywhere.
+    val scope = rememberCoroutineScope()
+    val recordingStore = remember { RecordingStore(context) }
+    var recording by remember { mutableStateOf(false) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var pendingRecording by remember { mutableStateOf<File?>(null) }
+
     // Non-recomposing shared state read by the frame loop. The offsets are a
     // primitive array rather than a map: it is written once per layout for every
     // token and read on every frame, so boxing tens of thousands of floats would
@@ -277,6 +300,23 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
         }
         errorMsg = null
         if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
+    }
+
+    // Recording follows tracking: it auto-starts once the mic is live, and when
+    // tracking ends (Stop or an interruption, which finalizes the WAV inside the
+    // recognizer) the finished file is parked for the keep/discard prompt.
+    LaunchedEffect(isListening) {
+        if (isListening && !recording) {
+            val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+            val file = recordingStore.newTempFile("prompter_$stamp.wav")
+            recordingFile = file
+            recognizer.startRecording(file)
+            recording = true
+        } else if (!isListening && recording) {
+            recording = false
+            pendingRecording = recordingFile
+            recordingFile = null
+        }
     }
 
     // The countdown gives the speaker a beat to draw breath and look up before
@@ -471,6 +511,7 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                         onToggle = { toggleListening() },
                         onRestart = { moveTo(-1) },
                         onToggleSettings = { showSettings = true },
+                        recording = recording,
                     )
                 }
             }
@@ -514,6 +555,39 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                 onButtonPos = { buttonPos = it },
             )
         }
+    }
+
+    // After tracking ends, let the speaker keep or throw away what was recorded
+    // before it is written anywhere permanent.
+    pendingRecording?.let { temp ->
+        AlertDialog(
+            // No outside-tap dismiss: a recording must be explicitly kept or not.
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.save_recording_title)) },
+            text = { Text(stringResource(R.string.save_recording_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRecording = null
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) { recordingStore.save(temp) }
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.audio_saved, saved.name),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }) { Text(stringResource(R.string.save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    pendingRecording = null
+                    scope.launch(Dispatchers.IO) { recordingStore.discard(temp) }
+                }) { Text(stringResource(R.string.discard)) }
+            },
+            containerColor = StageColors.Panel,
+            titleContentColor = StageColors.Foreground,
+            textContentColor = StageColors.Muted,
+        )
     }
 }
 
@@ -613,6 +687,7 @@ private fun ControlBar(
     onToggle: () -> Unit,
     onRestart: () -> Unit,
     onToggleSettings: () -> Unit,
+    recording: Boolean,
 ) {
     val bigButtonAlignment = when (buttonPos) {
         ButtonPos.LEFT -> Alignment.CenterStart
@@ -671,12 +746,23 @@ private fun ControlBar(
                 onClick = onToggleSettings,
             )
         }
-        Text(
-            text = statusText,
-            fontSize = 12.sp,
-            color = StageColors.Muted,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 12.dp, bottom = 2.dp),
-        )
+        ) {
+            // A steady red dot means the mic is being recorded to a file — the
+            // recording is automatic, so this is a status light, not a control.
+            if (recording) {
+                Icon(
+                    Icons.Filled.FiberManualRecord,
+                    contentDescription = stringResource(R.string.recording_in_progress),
+                    tint = StageColors.Stop,
+                    modifier = Modifier.size(10.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(text = statusText, fontSize = 12.sp, color = StageColors.Muted)
+        }
     }
 }
 

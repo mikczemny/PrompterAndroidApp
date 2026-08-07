@@ -129,6 +129,7 @@ fun HomeScreen(
     initialLanguage: Language = Languages.DEFAULT,
     onStart: (script: String, language: Language) -> Unit,
     onOpenLicenses: () -> Unit = {},
+    onOpenRecordings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -390,14 +391,24 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        text = stringResource(R.string.licenses),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .clickable(onClick = onOpenLicenses)
-                            .padding(vertical = 4.dp),
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Text(
+                            text = stringResource(R.string.recordings),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable(onClick = onOpenRecordings)
+                                .padding(vertical = 4.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.licenses),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable(onClick = onOpenLicenses)
+                                .padding(vertical = 4.dp),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(4.dp))

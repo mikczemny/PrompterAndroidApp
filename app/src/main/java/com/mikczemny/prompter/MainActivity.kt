@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import com.mikczemny.prompter.speech.Languages
 import com.mikczemny.prompter.ui.HomeScreen
 import com.mikczemny.prompter.ui.LicensesScreen
+import com.mikczemny.prompter.ui.RecordingsScreen
 import com.mikczemny.prompter.ui.TeleprompterScreen
 import com.mikczemny.prompter.ui.theme.PrompterTheme
 
@@ -37,10 +38,13 @@ private fun PrompterApp() {
     var script by rememberSaveable { mutableStateOf<String?>(null) }
     var languageCode by rememberSaveable { mutableStateOf(Languages.DEFAULT.code) }
     var showLicenses by rememberSaveable { mutableStateOf(false) }
+    var showRecordings by rememberSaveable { mutableStateOf(false) }
 
     val currentScript = script
     when {
         showLicenses -> LicensesScreen(onBack = { showLicenses = false })
+
+        showRecordings -> RecordingsScreen(onBack = { showRecordings = false })
 
         currentScript == null -> HomeScreen(
             initialLanguage = Languages.byCode(languageCode),
@@ -49,6 +53,7 @@ private fun PrompterApp() {
                 script = text
             },
             onOpenLicenses = { showLicenses = true },
+            onOpenRecordings = { showRecordings = true },
         )
 
         else -> TeleprompterScreen(
