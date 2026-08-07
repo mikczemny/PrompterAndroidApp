@@ -84,6 +84,16 @@
     <string name="model_downloading_subtitle">One-time, ~%d MB. Works fully offline afterwards.</string>
     <string name="model_loading_subtitle">Preparing offline recognition…</string>
 
+    <!-- Document import -->
+    <string name="doc_fallback_name">document</string>
+    <string name="doc_error_legacy_doc">Old .doc files aren\'t supported. Open it in Word and save as .docx.</string>
+    <string name="doc_error_could_not_open">Could not open %s.</string>
+    <string name="doc_error_no_text">No text found in %s. A scanned PDF holds pictures of words, not words — it would need OCR first.</string>
+    <string name="doc_error_could_not_read">Could not read %s.</string>
+    <string name="doc_error_pdf_protected">That PDF is password-protected.</string>
+    <string name="doc_error_not_word">That file isn\'t a valid Word document.</string>
+    <string name="doc_error_word_unreadable">Could not read the Word document.</string>
+
     <!-- Open source licenses -->
     <string name="licenses">Open source licenses</string>
     <string name="licenses_intro">Prompter is built on open source software. The speech recognition engine and every downloadable language pack come from Vosk / Alpha Cephei under the Apache License 2.0.</string>

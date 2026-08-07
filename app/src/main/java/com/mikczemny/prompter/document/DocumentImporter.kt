@@ -3,10 +3,10 @@ package com.mikczemny.prompter.document
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.mikczemny.prompter.R
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
-import java.io.IOException
 import java.io.InputStream
 
 /**
@@ -33,7 +33,8 @@ object DocumentImporter {
     }
 
     fun import(context: Context, uri: Uri): Outcome {
-        val fileName = displayName(context, uri) ?: "document"
+        val fileName = displayName(context, uri)
+            ?: context.getString(R.string.doc_fallback_name)
         val extension = fileName.substringAfterLast('.', "").lowercase()
         val mimeType = context.contentResolver.getType(uri).orEmpty()
 
@@ -41,9 +42,7 @@ object DocumentImporter {
         // explicitly, because "unsupported file" would send someone hunting for
         // a bug that is really a five-second Save As.
         if (extension == "doc" || mimeType == "application/msword") {
-            return Outcome.Failure(
-                "Old .doc files aren't supported. Open it in Word and save as .docx."
-            )
+            return Outcome.Failure(context.getString(R.string.doc_error_legacy_doc))
         }
 
         return try {
@@ -57,21 +56,28 @@ object DocumentImporter {
 
                     else -> tidyParagraphs(stream.readBytes().decodeToString())
                 }
-            } ?: return Outcome.Failure("Could not open $fileName.")
+            } ?: return Outcome.Failure(
+                context.getString(R.string.doc_error_could_not_open, fileName)
+            )
 
             if (text.isBlank()) {
-                Outcome.Failure(
-                    "No text found in $fileName. A scanned PDF holds pictures of " +
-                        "words, not words — it would need OCR first."
-                )
+                Outcome.Failure(context.getString(R.string.doc_error_no_text, fileName))
             } else {
                 Outcome.Success(fileName = fileName, text = text)
             }
-        } catch (e: IOException) {
-            Outcome.Failure(e.message ?: "Could not read $fileName.")
+        } catch (e: DocumentException) {
+            // A recognised failure from an extractor: resolve its reason to a
+            // localized message here, where the app resources live.
+            Outcome.Failure(context.getString(messageFor(e.reason)))
         } catch (e: Exception) {
-            Outcome.Failure("Could not read $fileName: ${e.message}")
+            Outcome.Failure(context.getString(R.string.doc_error_could_not_read, fileName))
         }
+    }
+
+    private fun messageFor(reason: DocumentException.Reason): Int = when (reason) {
+        DocumentException.Reason.PDF_PASSWORD_PROTECTED -> R.string.doc_error_pdf_protected
+        DocumentException.Reason.NOT_A_WORD_DOCUMENT -> R.string.doc_error_not_word
+        DocumentException.Reason.UNREADABLE_WORD_DOCUMENT -> R.string.doc_error_word_unreadable
     }
 
     private fun extractPdf(context: Context, stream: InputStream): String {
@@ -80,7 +86,7 @@ object DocumentImporter {
         PDFBoxResourceLoader.init(context.applicationContext)
         PDDocument.load(stream).use { document ->
             if (document.isEncrypted) {
-                throw IOException("That PDF is password-protected.")
+                throw DocumentException(DocumentException.Reason.PDF_PASSWORD_PROTECTED)
             }
             return PDFTextStripper().getText(document)
         }

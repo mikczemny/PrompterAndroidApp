@@ -2,7 +2,6 @@ package com.mikczemny.prompter.document
 
 import org.xml.sax.Attributes
 import org.xml.sax.helpers.DefaultHandler
-import java.io.IOException
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.SAXParserFactory
@@ -30,8 +29,8 @@ object DocxExtractor {
     private const val MAX_CHARS = 2_000_000
 
     /**
-     * @throws IOException if [input] is not a Word document, or its body is
-     *   missing or unreadable.
+     * @throws DocumentException if [input] is not a Word document, or its body
+     *   is missing or unreadable.
      */
     fun extractText(input: InputStream): String {
         ZipInputStream(input.buffered()).use { zip ->
@@ -46,7 +45,7 @@ object DocxExtractor {
                 entry = zip.nextEntry
             }
         }
-        throw IOException("Not a Word document — $DOCUMENT_ENTRY is missing")
+        throw DocumentException(DocumentException.Reason.NOT_A_WORD_DOCUMENT)
     }
 
     private fun parseBody(stream: InputStream): String {
@@ -71,7 +70,7 @@ object DocxExtractor {
         try {
             factory.newSAXParser().parse(stream, handler)
         } catch (e: Exception) {
-            throw IOException("Could not read the Word document: ${e.message}", e)
+            throw DocumentException(DocumentException.Reason.UNREADABLE_WORD_DOCUMENT).initCause(e)
         }
         return handler.text()
     }
