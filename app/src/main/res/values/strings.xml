@@ -1,4 +1,85 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Prompter</string>
+
+    <!-- Home screen -->
+    <string name="home_intro">Paste, import or type your script, then press Start. The prompter listens and scrolls at your own pace — fully offline once the language pack is downloaded.</string>
+    <string name="label_language">Language</string>
+    <string name="voice_pack_size">Voice pack ~%d MB, downloaded once</string>
+    <string name="language_selected">%1$s  ·  %2$s</string>
+    <string name="language_option_detail">%1$s  ·  ~%2$d MB</string>
+    <string name="import_button">Import</string>
+    <string name="reading">Reading…</string>
+    <string name="save">Save</string>
+    <string name="library">Library</string>
+    <string name="one_line_per_sentence">One line per sentence</string>
+    <string name="label_script">Script</string>
+    <string name="version">Version %s</string>
+    <string name="saved_as">Saved as \"%s\"</string>
+    <string name="import_truncated">%1$s was longer than %2$d characters and has been cut to fit.</string>
+
+    <!-- Quick inserts -->
+    <string name="qi_period">.</string>
+    <string name="qi_comma">,</string>
+    <string name="qi_question">?</string>
+    <string name="qi_exclamation">!</string>
+    <string name="qi_dash">—</string>
+    <string name="qi_new_line">New line</string>
+    <string name="qi_new_paragraph">New paragraph</string>
+
+    <!-- Library -->
+    <string name="saved_scripts">Saved scripts</string>
+    <string name="library_empty">Nothing saved yet. Press Save to keep the current script here.</string>
+    <string name="script_meta">%1$s · %2$s</string>
+    <string name="delete_script">Delete %s</string>
+
+    <!-- Script stats -->
+    <string name="characters_caption">%d characters</string>
+    <string name="reading_pace">at %d wpm</string>
+    <string name="long_script_warning">Long script — scrolling gets heavier, and input stops at %d characters.</string>
+    <string name="duration_under_min">under 1 min</string>
+    <string name="duration_min">%d min</string>
+    <string name="duration_min_sec">%1$d min %2$d s</string>
+
+    <plurals name="words_count">
+        <item quantity="one">%d word</item>
+        <item quantity="other">%d words</item>
+    </plurals>
+
+    <!-- Teleprompter stage -->
+    <string name="mic_permission_denied">Microphone permission denied — the prompter can\'t follow your voice.</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="get_ready">Get ready…</string>
+    <string name="back_to_menu">Back to menu</string>
+    <string name="restart_script">Restart script from the beginning</string>
+    <string name="settings">Settings</string>
+    <string name="status_paused">Paused</string>
+    <string name="status_tracking">Tracking</string>
+    <string name="status_line">%1$s · %2$d/%3$d · tap a word to jump</string>
+
+    <!-- Settings panel -->
+    <string name="setting_font">Font</string>
+    <string name="setting_margin">Margin</string>
+    <string name="setting_screen">Screen</string>
+    <string name="setting_read_line">Read line</string>
+    <string name="setting_mirror">Mirror</string>
+    <string name="setting_mirror_caption">For beam-splitter glass</string>
+    <string name="setting_countdown">Countdown</string>
+    <string name="setting_countdown_caption">3-2-1 before the mic opens</string>
+    <string name="setting_button">Button</string>
+    <string name="readout_sp">%d sp</string>
+    <string name="readout_dp">%d dp</string>
+    <string name="readout_percent">%d%%</string>
+
+    <!-- Button position -->
+    <string name="button_pos_left">Left</string>
+    <string name="button_pos_center">Center</string>
+    <string name="button_pos_right">Right</string>
+
+    <!-- Model download overlay -->
+    <string name="model_downloading">Downloading %s language pack…</string>
+    <string name="model_loading">Loading %s…</string>
+    <string name="model_downloading_subtitle">One-time, ~%d MB. Works fully offline afterwards.</string>
+    <string name="model_loading_subtitle">Preparing offline recognition…</string>
 </resources>

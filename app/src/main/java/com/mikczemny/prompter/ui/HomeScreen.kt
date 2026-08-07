@@ -61,14 +61,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikczemny.prompter.BuildConfig
+import com.mikczemny.prompter.R
 import com.mikczemny.prompter.data.SavedScript
 import com.mikczemny.prompter.data.ScriptStore
 import com.mikczemny.prompter.document.DocumentImporter
@@ -100,6 +104,9 @@ private const val HARD_CHAR_LIMIT = 20_000
 /** Unhurried presenting pace, used only for the reading-time estimate. */
 private const val SPEAKING_WORDS_PER_MINUTE = 140.0
 
+/** A labelled snippet the quick-insert bar drops in at the cursor. */
+private data class QuickInsert(@StringRes val labelRes: Int, val snippet: String)
+
 /**
  * Quick insertions offered under the script field. Punctuation and breaks are
  * fiddly to reach on a phone keyboard, and they are exactly what a pasted or
@@ -107,13 +114,13 @@ private const val SPEAKING_WORDS_PER_MINUTE = 140.0
  * is where the speaker will pause.
  */
 private val QUICK_INSERTS = listOf(
-    "." to ".",
-    "," to ",",
-    "?" to "?",
-    "!" to "!",
-    "—" to " — ",
-    "New line" to "\n",
-    "New paragraph" to "\n\n",
+    QuickInsert(R.string.qi_period, "."),
+    QuickInsert(R.string.qi_comma, ","),
+    QuickInsert(R.string.qi_question, "?"),
+    QuickInsert(R.string.qi_exclamation, "!"),
+    QuickInsert(R.string.qi_dash, " — "),
+    QuickInsert(R.string.qi_new_line, "\n"),
+    QuickInsert(R.string.qi_new_paragraph, "\n\n"),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -161,7 +168,7 @@ fun HomeScreen(
                 store.save(text = script.text, id = currentScriptId)
             }
             currentScriptId = saved.id
-            snackbarHostState.showSnackbar("Saved as \"${saved.title}\"")
+            snackbarHostState.showSnackbar(context.getString(R.string.saved_as, saved.title))
         }
     }
 
@@ -197,8 +204,11 @@ fun HomeScreen(
                     replaceScript(outcome.text)
                     if (outcome.text.length > HARD_CHAR_LIMIT) {
                         snackbarHostState.showSnackbar(
-                            "${outcome.fileName} was longer than $HARD_CHAR_LIMIT " +
-                                "characters and has been cut to fit."
+                            context.getString(
+                                R.string.import_truncated,
+                                outcome.fileName,
+                                HARD_CHAR_LIMIT,
+                            )
                         )
                     }
                 }
@@ -229,14 +239,12 @@ fun HomeScreen(
                 Spacer(Modifier.height(4.dp))
 
                 Text(
-                    text = "Prompter",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Paste, import or type your script, then press Start. The " +
-                        "prompter listens and scrolls at your own pace — fully offline " +
-                        "once the language pack is downloaded.",
+                    text = stringResource(R.string.home_intro),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -246,12 +254,16 @@ fun HomeScreen(
                     onExpandedChange = { expanded = it },
                 ) {
                     OutlinedTextField(
-                        value = "${language.displayName}  ·  ${language.englishName}",
+                        value = stringResource(
+                            R.string.language_selected,
+                            language.displayName,
+                            language.englishName,
+                        ),
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Language") },
+                        label = { Text(stringResource(R.string.label_language)) },
                         supportingText = {
-                            Text("Voice pack ~${language.approxMb} MB, downloaded once")
+                            Text(stringResource(R.string.voice_pack_size, language.approxMb))
                         },
                         trailingIcon = {
                             ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
@@ -271,7 +283,11 @@ fun HomeScreen(
                                     Column {
                                         Text(lang.displayName, fontWeight = FontWeight.Medium)
                                         Text(
-                                            "${lang.englishName}  ·  ~${lang.approxMb} MB",
+                                            stringResource(
+                                                R.string.language_option_detail,
+                                                lang.englishName,
+                                                lang.approxMb,
+                                            ),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -298,7 +314,11 @@ fun HomeScreen(
                     ) {
                         Icon(Icons.Filled.FileOpen, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(if (importing) "Reading…" else "Import")
+                        Text(
+                            stringResource(
+                                if (importing) R.string.reading else R.string.import_button
+                            )
+                        )
                     }
                     OutlinedButton(
                         onClick = { saveScript() },
@@ -307,7 +327,7 @@ fun HomeScreen(
                     ) {
                         Icon(Icons.Filled.SaveAlt, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Save")
+                        Text(stringResource(R.string.save))
                     }
                     OutlinedButton(
                         onClick = { showLibrary = true },
@@ -315,7 +335,7 @@ fun HomeScreen(
                     ) {
                         Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Library")
+                        Text(stringResource(R.string.library))
                     }
                     OutlinedButton(
                         onClick = { replaceScript(oneSentencePerLine(text)) },
@@ -328,7 +348,7 @@ fun HomeScreen(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("One line per sentence")
+                        Text(stringResource(R.string.one_line_per_sentence))
                     }
                 }
 
@@ -345,7 +365,7 @@ fun HomeScreen(
                         edited = true
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Script") },
+                    label = { Text(stringResource(R.string.label_script)) },
                     shape = RoundedCornerShape(16.dp),
                     minLines = 8,
                     isError = overSoftLimit,
@@ -360,7 +380,7 @@ fun HomeScreen(
                 )
 
                 Text(
-                    text = "Version ${BuildConfig.VERSION_NAME}",
+                    text = stringResource(R.string.version, BuildConfig.VERSION_NAME),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -408,7 +428,7 @@ private fun ScriptLibrary(
             .padding(bottom = 28.dp),
     ) {
         Text(
-            "Saved scripts",
+            stringResource(R.string.saved_scripts),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 12.dp),
@@ -416,7 +436,7 @@ private fun ScriptLibrary(
 
         if (scripts.isEmpty()) {
             Text(
-                "Nothing saved yet. Press Save to keep the current script here.",
+                stringResource(R.string.library_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -437,8 +457,17 @@ private fun ScriptLibrary(
                         .padding(vertical = 14.dp),
                 ) {
                     Text(saved.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                    val savedWordCount = splitWords(saved.text).size
                     Text(
-                        "${splitWords(saved.text).size} words · ${formatTimestamp(saved.updatedAt)}",
+                        stringResource(
+                            R.string.script_meta,
+                            pluralStringResource(
+                                R.plurals.words_count,
+                                savedWordCount,
+                                savedWordCount,
+                            ),
+                            formatTimestamp(saved.updatedAt),
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -446,7 +475,7 @@ private fun ScriptLibrary(
                 IconButton(onClick = { onDelete(saved) }) {
                     Icon(
                         Icons.Filled.DeleteOutline,
-                        contentDescription = "Delete ${saved.title}",
+                        contentDescription = stringResource(R.string.delete_script, saved.title),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -471,16 +500,16 @@ private fun QuickInsertBar(onInsert: (String) -> Unit) {
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        QUICK_INSERTS.forEach { (label, snippet) ->
+        QUICK_INSERTS.forEach { item ->
             OutlinedButton(
-                onClick = { onInsert(snippet) },
+                onClick = { onInsert(item.snippet) },
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     horizontal = 16.dp,
                     vertical = 6.dp,
                 ),
             ) {
-                Text(label, fontSize = 15.sp)
+                Text(stringResource(item.labelRes), fontSize = 15.sp)
             }
         }
     }
@@ -503,8 +532,16 @@ private fun ScriptStats(wordCount: Int, charCount: Int, overSoftLimit: Boolean) 
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Stat(Icons.AutoMirrored.Outlined.Notes, "$wordCount words", "$charCount characters")
-                Stat(Icons.Filled.Schedule, formatDuration(wordCount), "at 140 wpm")
+                Stat(
+                    Icons.AutoMirrored.Outlined.Notes,
+                    pluralStringResource(R.plurals.words_count, wordCount, wordCount),
+                    stringResource(R.string.characters_caption, charCount),
+                )
+                Stat(
+                    Icons.Filled.Schedule,
+                    formatDuration(wordCount),
+                    stringResource(R.string.reading_pace, SPEAKING_WORDS_PER_MINUTE.toInt()),
+                )
             }
 
             if (overSoftLimit) {
@@ -517,8 +554,7 @@ private fun ScriptStats(wordCount: Int, charCount: Int, overSoftLimit: Boolean) 
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Long script — scrolling gets heavier, and input stops at " +
-                            "$HARD_CHAR_LIMIT characters.",
+                        stringResource(R.string.long_script_warning, HARD_CHAR_LIMIT),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -567,16 +603,21 @@ private fun StartBar(enabled: Boolean, onStart: () -> Unit) {
         ) {
             Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(12.dp))
-            Text("Start", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.start), fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 /** Reading time as a short human string; under a minute is not worth digits. */
+@Composable
 private fun formatDuration(wordCount: Int): String {
     val totalSeconds = (wordCount / SPEAKING_WORDS_PER_MINUTE * 60).roundToInt()
-    if (totalSeconds < 60) return "under 1 min"
+    if (totalSeconds < 60) return stringResource(R.string.duration_under_min)
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return if (seconds == 0) "$minutes min" else "$minutes min $seconds s"
+    return if (seconds == 0) {
+        stringResource(R.string.duration_min, minutes)
+    } else {
+        stringResource(R.string.duration_min_sec, minutes, seconds)
+    }
 }

@@ -68,14 +68,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.annotation.StringRes
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.mikczemny.prompter.R
 import com.mikczemny.prompter.match.ScriptMatcher
 import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.speech.ModelStatus
@@ -112,7 +115,11 @@ private const val COUNTDOWN_FROM = 3
 private val PROGRESS_BAR_HEIGHT = 3.dp
 
 /** Where the big Start/Stop button sits within the bottom control bar. */
-private enum class ButtonPos(val label: String) { LEFT("Left"), CENTER("Center"), RIGHT("Right") }
+private enum class ButtonPos(@StringRes val labelRes: Int) {
+    LEFT(R.string.button_pos_left),
+    CENTER(R.string.button_pos_center),
+    RIGHT(R.string.button_pos_right),
+}
 
 /**
  * Token whose rendered text contains [offset], via binary search over the
@@ -246,7 +253,7 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
             errorMsg = null
             if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
         } else {
-            errorMsg = "Microphone permission denied — the prompter can't follow your voice."
+            errorMsg = context.getString(R.string.mic_permission_denied)
         }
     }
 
@@ -435,14 +442,14 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                         isListening = isListening,
                         counting = countdown > 0,
                         buttonPos = buttonPos,
-                        statusText = buildString {
-                            append(if (paused) "Paused" else "Tracking")
-                            append(" · ")
-                            append(currentIndex + 1)
-                            append('/')
-                            append(words.size)
-                            append(" · tap a word to jump")
-                        },
+                        statusText = stringResource(
+                            R.string.status_line,
+                            stringResource(
+                                if (paused) R.string.status_paused else R.string.status_tracking
+                            ),
+                            currentIndex + 1,
+                            words.size,
+                        ),
                         onBack = onBack,
                         onToggle = { toggleListening() },
                         onRestart = { moveTo(-1) },
@@ -570,7 +577,11 @@ private fun CountdownOverlay(value: Int) {
                 fontSize = 140.sp,
                 fontWeight = FontWeight.Bold,
             )
-            Text(text = "Get ready…", color = StageColors.Muted, fontSize = 16.sp)
+            Text(
+                text = stringResource(R.string.get_ready),
+                color = StageColors.Muted,
+                fontSize = 16.sp,
+            )
         }
     }
 }
@@ -600,7 +611,7 @@ private fun ControlBar(
         ) {
             StageIconButton(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                description = "Back to menu",
+                description = stringResource(R.string.back_to_menu),
                 onClick = onBack,
             )
 
@@ -625,7 +636,7 @@ private fun ControlBar(
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        if (live) "Stop" else "Start",
+                        stringResource(if (live) R.string.stop else R.string.start),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -634,12 +645,12 @@ private fun ControlBar(
 
             StageIconButton(
                 icon = Icons.Filled.RestartAlt,
-                description = "Restart script from the beginning",
+                description = stringResource(R.string.restart_script),
                 onClick = onRestart,
             )
             StageIconButton(
                 icon = Icons.Filled.Settings,
-                description = "Settings",
+                description = stringResource(R.string.settings),
                 onClick = onToggleSettings,
             )
         }
@@ -689,39 +700,61 @@ private fun SettingsPanel(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            "Settings",
+            stringResource(R.string.settings),
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
             color = StageColors.Foreground,
             modifier = Modifier.padding(bottom = 8.dp),
         )
 
-        SettingSlider("Font", fontSize, 24f..96f, "${fontSize.roundToInt()} sp", onFontSize)
-        SettingSlider("Margin", margin, 0f..30f, "${margin.roundToInt()} dp", onMargin)
         SettingSlider(
-            label = "Screen",
+            label = stringResource(R.string.setting_font),
+            value = fontSize,
+            range = 24f..96f,
+            readout = stringResource(R.string.readout_sp, fontSize.roundToInt()),
+            onValueChange = onFontSize,
+        )
+        SettingSlider(
+            label = stringResource(R.string.setting_margin),
+            value = margin,
+            range = 0f..30f,
+            readout = stringResource(R.string.readout_dp, margin.roundToInt()),
+            onValueChange = onMargin,
+        )
+        SettingSlider(
+            label = stringResource(R.string.setting_screen),
             value = brightness,
             range = MIN_BRIGHTNESS..1f,
-            readout = "${(brightness * 100).roundToInt()}%",
+            readout = stringResource(R.string.readout_percent, (brightness * 100).roundToInt()),
             onValueChange = onBrightness,
         )
         SettingSlider(
-            label = "Read line",
+            label = stringResource(R.string.setting_read_line),
             value = anchorFraction,
             range = 0.05f..0.6f,
-            readout = "${(anchorFraction * 100).roundToInt()}%",
+            readout = stringResource(R.string.readout_percent, (anchorFraction * 100).roundToInt()),
             onValueChange = onAnchorFraction,
         )
 
-        SettingSwitch("Mirror", "For beam-splitter glass", mirror, onMirror)
-        SettingSwitch("Countdown", "3-2-1 before the mic opens", useCountdown, onCountdown)
+        SettingSwitch(
+            stringResource(R.string.setting_mirror),
+            stringResource(R.string.setting_mirror_caption),
+            mirror,
+            onMirror,
+        )
+        SettingSwitch(
+            stringResource(R.string.setting_countdown),
+            stringResource(R.string.setting_countdown_caption),
+            useCountdown,
+            onCountdown,
+        )
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 8.dp),
         ) {
             Text(
-                "Button",
+                stringResource(R.string.setting_button),
                 fontSize = 14.sp,
                 color = StageColors.Muted,
                 modifier = Modifier.width(96.dp),
@@ -738,7 +771,7 @@ private fun SettingsPanel(
                             contentColor = Color.White,
                         ),
                     ) {
-                        Text(pos.label, fontSize = 13.sp)
+                        Text(stringResource(pos.labelRes), fontSize = 13.sp)
                     }
                 }
             }
@@ -808,14 +841,14 @@ private fun SettingSwitch(
 private fun ModelStatusOverlay(language: Language, status: ModelStatus) {
     val downloading = status as? ModelStatus.Downloading
     val title = if (downloading != null) {
-        "Downloading ${language.englishName} language pack…"
+        stringResource(R.string.model_downloading, language.englishName)
     } else {
-        "Loading ${language.englishName}…"
+        stringResource(R.string.model_loading, language.englishName)
     }
     val subtitle = if (downloading != null) {
-        "One-time, ~${language.approxMb} MB. Works fully offline afterwards."
+        stringResource(R.string.model_downloading_subtitle, language.approxMb)
     } else {
-        "Preparing offline recognition…"
+        stringResource(R.string.model_loading_subtitle)
     }
     val fraction = downloading?.fraction ?: -1f
 
@@ -839,7 +872,7 @@ private fun ModelStatusOverlay(language: Language, status: ModelStatus) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    text = "${(fraction * 100).roundToInt()}%",
+                    text = stringResource(R.string.readout_percent, (fraction * 100).roundToInt()),
                     color = StageColors.Muted,
                     fontSize = 12.sp,
                 )
