@@ -1,0 +1,44 @@
+name: CI
+
+# Build and test on every push to main and every pull request. Beyond catching
+# breakage, this earns its keep on a two-machine workflow by making an
+# un-pushed commit obvious: no green check on GitHub means the work never left
+# the other machine.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same ref makes the in-flight run redundant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The runner's path is ASCII, so the non-ASCII path check that bites on the
+      # dev machines (see CLAUDE.md) never triggers here.
+      - name: Build and test
+        run: ./gradlew assembleDebug testDebugUnitTest --stacktrace
+
+      # Hand back the built APK so either machine can grab a fresh build without
+      # compiling locally.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
