@@ -5,6 +5,13 @@ import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import androidx.camera.core.CameraSelector
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.Recording as CameraRecording
+import androidx.camera.video.VideoRecordEvent
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.video.AudioConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -30,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Settings
@@ -76,6 +84,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.annotation.StringRes
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -174,7 +183,12 @@ private fun firstIndexAtOrAfter(offsets: FloatArray, y: Float): Int {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
+fun TeleprompterScreen(
+    script: String,
+    language: Language,
+    mode: PrompterMode,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
 
     val matcher = remember(script) { ScriptMatcher(script) }
@@ -214,7 +228,56 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     val recordingStore = remember { RecordingStore(context) }
     var recording by remember { mutableStateOf(false) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
-    var pendingRecording by remember { mutableStateOf<File?>(null) }
+    var pendingAudio by remember { mutableStateOf<File?>(null) }
+
+    // Selfie preview: a draggable camera window floating over the script, so the
+    // speaker can frame themselves while reading. Off until enabled in settings.
+    // Key camera UI state by mode so switching from SelfiePrompter can never
+    // carry an open preview into ExtPrompter. External mode starts text-only,
+    // but keeps the camera button as an explicit opt-in.
+    var cameraEnabled by remember(mode) { mutableStateOf(false) }
+    var cameraBounds by remember(mode) { mutableStateOf<CameraWindowBounds?>(null) }
+    val cameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> cameraEnabled = granted }
+
+    // One camera session shared by the preview and video capture. Video is
+    // recorded WITHOUT audio — the mic is already taken by the tee — and paired
+    // with the audio file by a shared timestamp for easy sync in editing.
+    val cameraController = remember {
+        LifecycleCameraController(context).apply {
+            cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+            setEnabledUseCases(CameraController.VIDEO_CAPTURE)
+        }
+    }
+    var videoRecording by remember { mutableStateOf<CameraRecording?>(null) }
+    var pendingVideo by remember { mutableStateOf<File?>(null) }
+    // True between Stop and the camera finishing the MP4, so the keep/discard
+    // prompt waits for the video file to be complete before offering to save it.
+    var awaitingVideo by remember { mutableStateOf(false) }
+
+    fun toggleCamera(on: Boolean) {
+        // Unbinding CameraX while it is finalizing a recording corrupts the MP4.
+        // Keep the session alive until Stop; the switch becomes effective again
+        // as soon as the paired audio/video recording has finished.
+        if (!on && recording) return
+        if (!on) {
+            cameraEnabled = false
+            cameraBounds = null
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) cameraEnabled = true else cameraPermission.launch(Manifest.permission.CAMERA)
+    }
+
+    // The start-screen choice is a working preset, not merely a label. Selfie
+    // mode enters the stage ready to frame and record; external-camera mode
+    // never opens CameraX and leaves the full display to the script.
+    LaunchedEffect(mode) {
+        if (mode == PrompterMode.SELFIE) toggleCamera(true) else toggleCamera(false)
+    }
 
     // Non-recomposing shared state read by the frame loop. The offsets are a
     // primitive array rather than a map: it is written once per layout for every
@@ -308,14 +371,42 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     LaunchedEffect(isListening) {
         if (isListening && !recording) {
             val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
-            val file = recordingStore.newTempFile("prompter_$stamp.wav")
-            recordingFile = file
-            recognizer.startRecording(file)
+            val audioFile = recordingStore.newTempFile("prompter_$stamp.wav")
+            recordingFile = audioFile
+            recognizer.startRecording(audioFile)
             recording = true
+
+            // If the selfie preview is up, record video (no audio) alongside.
+            if (cameraEnabled) {
+                val videoFile = recordingStore.newTempFile("prompter_$stamp.mp4")
+                runCatching {
+                    videoRecording = cameraController.startRecording(
+                        FileOutputOptions.Builder(videoFile).build(),
+                        AudioConfig.AUDIO_DISABLED,
+                        ContextCompat.getMainExecutor(context),
+                    ) { event ->
+                        // The MP4 is only complete at Finalize; only then is it
+                        // offered to the keep/discard prompt.
+                        if (event is VideoRecordEvent.Finalize) {
+                            if (event.hasError()) videoFile.delete() else pendingVideo = videoFile
+                            awaitingVideo = false
+                        }
+                    }
+                }.onFailure {
+                    videoRecording = null
+                    videoFile.delete()
+                }
+            }
         } else if (!isListening && recording) {
             recording = false
-            pendingRecording = recordingFile
+            pendingAudio = recordingFile
             recordingFile = null
+            // Stop video and wait for its Finalize before prompting to save.
+            if (videoRecording != null) {
+                awaitingVideo = true
+                runCatching { videoRecording?.stop() }
+                videoRecording = null
+            }
         }
     }
 
@@ -386,6 +477,26 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
         color = StageColors.Background,
         contentColor = StageColors.Foreground,
     ) {
+        val density = LocalDensity.current
+        val camera = cameraBounds.takeIf { cameraEnabled }
+        val cameraGapPx = with(density) { 12.dp.toPx() }
+        val visualStartPx = if (camera != null && camera.centerX <= camera.containerWidth / 2f) {
+            camera.right + cameraGapPx
+        } else {
+            0f
+        }
+        val visualEndPx = if (camera != null && camera.centerX > camera.containerWidth / 2f) {
+            camera.containerWidth - camera.left + cameraGapPx
+        } else {
+            0f
+        }
+        // The entire script layer is mirrored for beam-splitter glass, so its
+        // logical padding has to be swapped to preserve the visual exclusion.
+        val logicalStartPx = if (mirror) visualEndPx else visualStartPx
+        val logicalEndPx = if (mirror) visualStartPx else visualEndPx
+        val textStartPadding = with(density) { maxOf(margin.dp.toPx(), logicalStartPx).toDp() }
+        val textEndPadding = with(density) { maxOf(margin.dp.toPx(), logicalEndPx).toDp() }
+
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
 
@@ -402,8 +513,8 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                             .graphicsLayer { scaleX = if (mirror) -1f else 1f }
                             .verticalScroll(scrollState)
                             .padding(
-                                start = margin.dp,
-                                end = margin.dp,
+                                start = textStartPadding,
+                                end = textEndPadding,
                                 top = 24.dp,
                                 bottom = 400.dp,
                             ),
@@ -509,6 +620,8 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
                         ),
                         onBack = onBack,
                         onToggle = { toggleListening() },
+                        cameraEnabled = cameraEnabled,
+                        onToggleCamera = { toggleCamera(!cameraEnabled) },
                         onRestart = { moveTo(-1) },
                         onToggleSettings = { showSettings = true },
                         recording = recording,
@@ -528,6 +641,15 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
             // drawn last so it stays visible over the countdown and model
             // status overlays too, not just the reading stage.
             ReadingProgressBar(progress = progress, modifier = Modifier.align(Alignment.TopCenter))
+
+            // Drawn last so the selfie window floats above script and overlays.
+            if (cameraEnabled) {
+                FloatingCameraWindow(
+                    controller = cameraController,
+                    onBoundsChange = { cameraBounds = it },
+                    onClose = { toggleCamera(false) },
+                )
+            }
         }
     }
 
@@ -558,30 +680,48 @@ fun TeleprompterScreen(script: String, language: Language, onBack: () -> Unit) {
     }
 
     // After tracking ends, let the speaker keep or throw away what was recorded
-    // before it is written anywhere permanent.
-    pendingRecording?.let { temp ->
+    // before it is written anywhere permanent. Waits for the video (if any) to
+    // finish encoding so the pair is saved or discarded together.
+    val audioToDecide = pendingAudio
+    if (audioToDecide != null && !awaitingVideo) {
+        val video = pendingVideo
+        val withVideo = video != null
         AlertDialog(
             // No outside-tap dismiss: a recording must be explicitly kept or not.
             onDismissRequest = {},
             title = { Text(stringResource(R.string.save_recording_title)) },
-            text = { Text(stringResource(R.string.save_recording_message)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (withVideo) R.string.save_recording_message_av
+                        else R.string.save_recording_message
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    pendingRecording = null
+                    pendingAudio = null
+                    pendingVideo = null
                     scope.launch {
-                        val saved = withContext(Dispatchers.IO) { recordingStore.save(temp) }
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.audio_saved, saved.name),
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        val savedAudio = withContext(Dispatchers.IO) { recordingStore.save(audioToDecide) }
+                        val savedVideo = video?.let { withContext(Dispatchers.IO) { recordingStore.save(it) } }
+                        val msg = if (savedVideo != null) {
+                            context.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
+                        } else {
+                            context.getString(R.string.audio_saved, savedAudio.name)
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     }
                 }) { Text(stringResource(R.string.save)) }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    pendingRecording = null
-                    scope.launch(Dispatchers.IO) { recordingStore.discard(temp) }
+                    pendingAudio = null
+                    pendingVideo = null
+                    scope.launch(Dispatchers.IO) {
+                        recordingStore.discard(audioToDecide)
+                        video?.let { recordingStore.discard(it) }
+                    }
                 }) { Text(stringResource(R.string.discard)) }
             },
             containerColor = StageColors.Panel,
@@ -685,6 +825,8 @@ private fun ControlBar(
     statusText: String,
     onBack: () -> Unit,
     onToggle: () -> Unit,
+    cameraEnabled: Boolean,
+    onToggleCamera: () -> Unit,
     onRestart: () -> Unit,
     onToggleSettings: () -> Unit,
     recording: Boolean,
@@ -712,26 +854,42 @@ private fun ControlBar(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 contentAlignment = bigButtonAlignment,
             ) {
-                Button(
-                    onClick = onToggle,
-                    modifier = Modifier.height(60.dp).widthIn(min = 150.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (live) StageColors.Stop else StageColors.Go,
-                        contentColor = Color.White,
-                    ),
-                ) {
-                    Icon(
-                        if (live) Icons.Filled.Stop else Icons.Filled.Mic,
-                        contentDescription = null,
-                        modifier = Modifier.size(26.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        stringResource(if (live) R.string.stop else R.string.start),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onToggleCamera,
+                        enabled = !recording,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.PhotoCamera,
+                            contentDescription = stringResource(
+                                if (cameraEnabled) R.string.hide_camera else R.string.show_camera
+                            ),
+                            tint = if (cameraEnabled) StageColors.Live else StageColors.Foreground,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                    Button(
+                        onClick = onToggle,
+                        modifier = Modifier.height(60.dp).widthIn(min = 150.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (live) StageColors.Stop else StageColors.Go,
+                            contentColor = Color.White,
+                        ),
+                    ) {
+                        Icon(
+                            if (live) Icons.Filled.Stop else Icons.Filled.Mic,
+                            contentDescription = null,
+                            modifier = Modifier.size(26.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            stringResource(if (live) R.string.stop else R.string.start),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
 
@@ -851,7 +1009,6 @@ private fun SettingsPanel(
             useCountdown,
             onCountdown,
         )
-
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 8.dp),

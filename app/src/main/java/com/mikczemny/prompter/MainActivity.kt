@@ -1,6 +1,7 @@
 package com.mikczemny.prompter
 
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +13,8 @@ import androidx.compose.runtime.setValue
 import com.mikczemny.prompter.speech.Languages
 import com.mikczemny.prompter.ui.HomeScreen
 import com.mikczemny.prompter.ui.LicensesScreen
+import com.mikczemny.prompter.ui.ModeSelectionScreen
+import com.mikczemny.prompter.ui.PrompterMode
 import com.mikczemny.prompter.ui.RecordingsScreen
 import com.mikczemny.prompter.ui.TeleprompterScreen
 import com.mikczemny.prompter.ui.theme.PrompterTheme
@@ -39,9 +42,26 @@ private fun PrompterApp() {
     var languageCode by rememberSaveable { mutableStateOf(Languages.DEFAULT.code) }
     var showLicenses by rememberSaveable { mutableStateOf(false) }
     var showRecordings by rememberSaveable { mutableStateOf(false) }
+    var modeName by rememberSaveable { mutableStateOf<String?>(null) }
 
     val currentScript = script
+    val mode = modeName?.let { runCatching { PrompterMode.valueOf(it) }.getOrNull() }
+
+    // System Back follows the same hierarchy as the visible navigation instead
+    // of finishing MainActivity from every Compose screen. Back remains owned by
+    // Android only at the root mode chooser, where leaving the app is expected.
+    BackHandler(enabled = mode != null) {
+        when {
+            showLicenses -> showLicenses = false
+            showRecordings -> showRecordings = false
+            currentScript != null -> script = null
+            else -> modeName = null
+        }
+    }
+
     when {
+        mode == null -> ModeSelectionScreen(onSelect = { modeName = it.name })
+
         showLicenses -> LicensesScreen(onBack = { showLicenses = false })
 
         showRecordings -> RecordingsScreen(onBack = { showRecordings = false })
@@ -54,11 +74,17 @@ private fun PrompterApp() {
             },
             onOpenLicenses = { showLicenses = true },
             onOpenRecordings = { showRecordings = true },
+            mode = mode,
+            onChangeMode = {
+                script = null
+                modeName = null
+            },
         )
 
         else -> TeleprompterScreen(
             script = currentScript,
             language = Languages.byCode(languageCode),
+            mode = mode,
             onBack = { script = null },
         )
     }

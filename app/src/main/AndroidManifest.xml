@@ -5,6 +5,10 @@
     <!-- INTERNET is used only to download a language pack the first time it's
          selected; recognition itself runs fully offline afterwards. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Optional selfie preview/recording while reading; the app works fully
+         without it, so the camera is not required to install. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -28,5 +32,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Shares saved recordings (video) read-only so the system player can
+             open them; SAF-stored recordings already have their own uris. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

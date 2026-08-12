@@ -130,6 +130,8 @@ fun HomeScreen(
     onStart: (script: String, language: Language) -> Unit,
     onOpenLicenses: () -> Unit = {},
     onOpenRecordings: () -> Unit = {},
+    mode: PrompterMode,
+    onChangeMode: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -240,11 +242,25 @@ fun HomeScreen(
             ) {
                 Spacer(Modifier.height(4.dp))
 
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    FilledTonalButton(onClick = onChangeMode) {
+                        Text(
+                            stringResource(
+                                if (mode == PrompterMode.SELFIE) R.string.selfie_prompter
+                                else R.string.ext_prompter
+                            )
+                        )
+                    }
+                }
                 Text(
                     text = stringResource(R.string.home_intro),
                     style = MaterialTheme.typography.bodyMedium,

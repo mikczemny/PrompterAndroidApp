@@ -124,6 +124,14 @@ dependencies {
     // their recordings folder — list/create/delete without a storage permission.
     implementation("androidx.documentfile:documentfile:1.0.1")
 
+    // CameraX: front-camera preview (and later video capture) for reading to
+    // camera. camera-core comes in transitively via camera-camera2.
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    // LocalLifecycleOwner for Compose, needed to bind the camera to the screen.
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")

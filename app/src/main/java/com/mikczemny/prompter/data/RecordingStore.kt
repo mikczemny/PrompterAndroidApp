@@ -57,9 +57,14 @@ class RecordingStore(private val context: Context) {
     /** Moves a finished temp recording to its destination and returns it. */
     fun save(temp: File): Recording {
         val treeUri = folderUri()
+        val mime = if (temp.extension.equals("mp4", ignoreCase = true)) {
+            "video/mp4"
+        } else {
+            "audio/x-wav"
+        }
         if (treeUri != null) {
             val dir = DocumentFile.fromTreeUri(context, treeUri)
-            val doc = dir?.createFile("audio/x-wav", temp.name)
+            val doc = dir?.createFile(mime, temp.name)
             if (doc != null) {
                 context.contentResolver.openOutputStream(doc.uri)?.use { out ->
                     temp.inputStream().use { it.copyTo(out) }
@@ -91,11 +96,11 @@ class RecordingStore(private val context: Context) {
         val items = if (treeUri != null) {
             val dir = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
             dir.listFiles()
-                .filter { it.isFile && it.name?.endsWith(".wav") == true }
-                .map { Recording(it.name ?: "recording.wav", it.uri, it.length(), it.lastModified()) }
+                .filter { it.isFile && isRecording(it.name) }
+                .map { Recording(it.name ?: "recording", it.uri, it.length(), it.lastModified()) }
         } else {
             defaultDir.listFiles().orEmpty()
-                .filter { it.isFile && it.extension.equals("wav", ignoreCase = true) }
+                .filter { it.isFile && isRecording(it.name) }
                 .map { Recording(it.name, Uri.fromFile(it), it.length(), it.lastModified()) }
         }
         return items.sortedByDescending { it.lastModified }
@@ -107,6 +112,11 @@ class RecordingStore(private val context: Context) {
             "content" -> DocumentFile.fromSingleUri(context, recording.uri)?.delete()
             "file" -> recording.uri.path?.let { File(it).delete() }
         }
+    }
+
+    private fun isRecording(name: String?): Boolean {
+        val n = name?.lowercase() ?: return false
+        return n.endsWith(".wav") || n.endsWith(".mp4")
     }
 
     private companion object {

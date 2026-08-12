@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.mikczemny.prompter.R
 import com.mikczemny.prompter.data.Recording
 import com.mikczemny.prompter.data.RecordingStore
@@ -48,6 +50,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -81,7 +84,27 @@ fun RecordingsScreen(onBack: () -> Unit) {
         playingUri = null
     }
 
+    fun openVideo(recording: Recording) {
+        val viewUri = if (recording.uri.scheme == "file") {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                File(recording.uri.path!!),
+            )
+        } else {
+            recording.uri
+        }
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(viewUri, "video/mp4")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { context.startActivity(intent) }
+    }
+
     fun togglePlay(recording: Recording) {
+        if (recording.name.endsWith(".mp4", ignoreCase = true)) {
+            openVideo(recording)
+            return
+        }
         if (playingUri == recording.uri) {
             stopPlayback()
             return
@@ -203,9 +226,14 @@ private fun RecordingRow(
             .clickable(onClick = onTogglePlay)
             .padding(vertical = 8.dp),
     ) {
+        val isVideo = recording.name.endsWith(".mp4", ignoreCase = true)
         IconButton(onClick = onTogglePlay) {
             Icon(
-                if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                when {
+                    isVideo -> Icons.Filled.Movie
+                    playing -> Icons.Filled.Stop
+                    else -> Icons.Filled.PlayArrow
+                },
                 contentDescription = stringResource(
                     if (playing) R.string.stop_playback else R.string.play
                 ),

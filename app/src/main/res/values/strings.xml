@@ -2,6 +2,14 @@
 <resources>
     <string name="app_name">Prompter</string>
 
+    <!-- Recording mode -->
+    <string name="choose_mode_title">How are you recording?</string>
+    <string name="choose_mode_caption">Choose a setup. Prompter will prepare the right camera and reading layout.</string>
+    <string name="selfie_prompter">SelfiePrompter</string>
+    <string name="selfie_prompter_description">Use this device for the selfie camera, video recording and voice-following text.</string>
+    <string name="ext_prompter">ExtPrompter</string>
+    <string name="ext_prompter_description">Use this device only as a prompter while a separate camera records you.</string>
+
     <!-- Home screen -->
     <string name="home_intro">Paste, import or type your script, then press Start. The prompter listens and scrolls at your own pace — fully offline once the language pack is downloaded.</string>
     <string name="label_language">Language</string>
@@ -59,6 +67,8 @@
     <string name="audio_saved">Audio saved: %s</string>
     <string name="save_recording_title">Keep this recording?</string>
     <string name="save_recording_message">Save the audio you just recorded, or discard it.</string>
+    <string name="save_recording_message_av">Save the audio and video you just recorded, or discard them.</string>
+    <string name="recording_saved_av">Saved: %1$s + %2$s</string>
     <string name="discard">Discard</string>
 
     <!-- Recordings library -->
@@ -84,6 +94,8 @@
     <string name="setting_mirror_caption">For beam-splitter glass</string>
     <string name="setting_countdown">Countdown</string>
     <string name="setting_countdown_caption">3-2-1 before the mic opens</string>
+    <string name="show_camera">Show camera</string>
+    <string name="hide_camera">Hide camera</string>
     <string name="setting_button">Button</string>
     <string name="readout_sp">%d sp</string>
     <string name="readout_dp">%d dp</string>
