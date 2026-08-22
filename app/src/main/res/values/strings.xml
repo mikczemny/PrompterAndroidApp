@@ -24,7 +24,10 @@
     <string name="label_script">Script</string>
     <string name="version">Version %s</string>
     <string name="saved_as">Saved as \"%s\"</string>
-    <string name="import_truncated">%1$s was longer than %2$d characters and has been cut to fit.</string>
+    <plurals name="import_truncated">
+        <item quantity="one">%1$s was longer than %2$d character and has been cut to fit.</item>
+        <item quantity="other">%1$s was longer than %2$d characters and has been cut to fit.</item>
+    </plurals>
 
     <!-- Quick inserts -->
     <string name="qi_period">.</string>
@@ -42,9 +45,15 @@
     <string name="delete_script">Delete %s</string>
 
     <!-- Script stats -->
-    <string name="characters_caption">%d characters</string>
+    <plurals name="characters_caption">
+        <item quantity="one">%d character</item>
+        <item quantity="other">%d characters</item>
+    </plurals>
     <string name="reading_pace">at %d wpm</string>
-    <string name="long_script_warning">Long script — scrolling gets heavier, and input stops at %d characters.</string>
+    <plurals name="long_script_warning">
+        <item quantity="one">Long script — scrolling gets heavier, and input stops at %d character.</item>
+        <item quantity="other">Long script — scrolling gets heavier, and input stops at %d characters.</item>
+    </plurals>
     <string name="duration_under_min">under 1 min</string>
     <string name="duration_min">%d min</string>
     <string name="duration_min_sec">%1$d min %2$d s</string>
@@ -73,11 +82,17 @@
 
     <!-- Recordings library -->
     <string name="recordings">Recordings</string>
+    <string name="storage_setup_title">Where should recordings be saved?</string>
+    <string name="storage_setup_message">Choose once before using Prompter. You can change this later from Recordings.</string>
+    <string name="storage_camera_folder">Camera folder (DCIM/Camera)</string>
+    <string name="storage_custom_folder">Choose another folder</string>
+    <string name="storage_camera_folder_unavailable">The standard Camera folder requires Android 10 or newer. Choose another folder on this device.</string>
+    <string name="storage_setup_privacy">Prompter writes only recordings you choose to keep. Your audio, video and scripts are not uploaded.</string>
+    <string name="use_camera_folder">Use Camera folder</string>
     <string name="recordings_empty">No recordings yet. Press Start to record while you read.</string>
-    <string name="recordings_link">Recordings</string>
     <string name="choose_folder">Choose folder</string>
     <string name="saving_to">Saving to: %s</string>
-    <string name="folder_app_default">App folder (default)</string>
+    <string name="folder_app_default">Recording folder not configured</string>
     <string name="play">Play</string>
     <string name="stop_playback">Stop</string>
     <string name="delete_recording">Delete %s</string>
@@ -93,9 +108,15 @@
     <string name="setting_mirror">Mirror</string>
     <string name="setting_mirror_caption">For beam-splitter glass</string>
     <string name="setting_countdown">Countdown</string>
-    <string name="setting_countdown_caption">3-2-1 before the mic opens</string>
+    <string name="setting_countdown_caption">3–2–1 before the mic opens</string>
     <string name="show_camera">Show camera</string>
     <string name="hide_camera">Hide camera</string>
+    <string name="mic_disclosure_title">Microphone access</string>
+    <string name="mic_disclosure_message">Prompter uses the microphone only while tracking is active. The same audio stays on this device to follow your speech and create the WAV recording you can save or discard. It is never uploaded or shared.</string>
+    <string name="camera_disclosure_title">Camera access</string>
+    <string name="camera_disclosure_message">SelfiePrompter uses the front camera only while its preview is visible. When you press Start, it can create a silent MP4 on this device. Nothing is uploaded or shared.</string>
+    <string name="continue_action">Continue</string>
+    <string name="not_now">Not now</string>
     <string name="setting_button">Button</string>
     <string name="readout_sp">%d sp</string>
     <string name="readout_dp">%d dp</string>

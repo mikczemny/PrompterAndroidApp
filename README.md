@@ -1,137 +1,92 @@
-# Prompter — offline, voice-tracking teleprompter (Android)
+# Prompter for Android
 
-A native Android app (Kotlin + Jetpack Compose) that works like PromptSmart Pro:
-it listens to the speaker and scrolls the script at their pace. Speech
-recognition runs **100% on-device** ([Vosk](https://alphacephei.com/vosk/)) — no
-API key, no account, no audio ever sent to the cloud.
+Offline, voice-following teleprompter built with Kotlin and Jetpack Compose.
+Prompter listens on-device with Vosk, follows the speaker through a script, and
+scrolls at their pace. No account, cloud speech API, advertising SDK or
+analytics SDK is used.
 
-Built to be commercialized as a simple paid app across multiple markets
-(English US/UK, Spanish, Chinese, and more).
+## Recording modes
 
-## How it works
+- **SelfiePrompter** uses one device for prompting and recording. It shows a
+  draggable, pinch-resizable front-camera preview, keeps text clear of the
+  preview, records a silent MP4, and records the microphone once as a high
+  quality WAV while the same stream feeds Vosk.
+- **ExtPrompter** starts text-only for use with a separate camera. The camera
+  button remains available as an optional preview. Voice tracking and WAV
+  recording work as in SelfiePrompter.
 
-- `match/TextMatcher.kt` + `match/ScriptMatcher.kt` — the matching engine.
-  Instead of exact string search it aligns "the last few recognized words"
-  against "a window of the script" using local sequence alignment (a
-  Smith-Waterman variant). It tolerates misspoken words, skipped words and
-  filler; the position only advances when the match is confident. Tokenization
-  is Unicode-aware and falls back to character-level units for CJK/kana.
-- `speech/Language.kt` — registry of supported languages; add a market by
-  appending one entry.
-- `speech/VoskModelManager.kt` — downloads a language's model on demand (once)
-  into app-internal storage, then loads it. After that the language is fully
-  offline.
-- `speech/VoskSpeechRecognizer.kt` — continuous on-device recognition, emitting
-  partial and final results.
-- `data/ScriptStore.kt` — the script library. One plain file per script, first
-  line as the title. No database and no serialisation library: scripts are text,
-  there are few of them, and files keep the store testable on the JVM and the
-  data readable if anything ever goes wrong.
-- `document/` — importing scripts. `DocumentImporter` reads a file the user
-  picked through the storage access framework; `DocxExtractor` pulls text out of
-  a .docx without any library (a Word file is a ZIP holding XML); `TextReflow`
-  rejoins the lines PDF extraction breaks at the page margin; `ScriptFormatting`
-  puts one sentence per line on request.
-- `ui/HomeScreen.kt` — script entry, editing and language picker, with word
-  count, estimated speaking time and the script-length limits.
-- `ui/TeleprompterScreen.kt` — the reading stage: a focus band that lights the
-  line being read and dims the rest, velocity+correction smooth scroll,
-  tap-a-word-to-jump, restart for retakes, 3-2-1 countdown, mic-permission flow
-  and the first-run model-download overlay. The script renders as one immutable
-  string with the highlight painted over it, so tracking a word repaints without
-  re-measuring the text.
-- `ui/ScreenAwake.kt` — holds the screen on, pins its brightness, and hides the
-  system bars while prompting.
+After Stop, the user explicitly keeps or discards the take. Recordings can be
+listed, played/opened, deleted, and saved either in the app folder or a folder
+chosen through Android's Storage Access Framework.
 
-## Languages & models
+## Main capabilities
 
-No models are bundled in the APK (keeps it small). On first use of a language,
-its Vosk "small" model (~30–50 MB) is downloaded from the official Alpha Cephei
-repo and cached on the device. Currently offered: English, Spanish, Chinese,
-Polish, French, German, Italian, Portuguese, Russian, Hindi, Japanese.
+- fully on-device speech recognition after a language model is downloaded;
+- fuzzy Smith-Waterman-style script alignment tolerant of missed and inserted
+  words, with Unicode/CJK-aware tokenization;
+- visible-word-constrained matching, pause detection, tap-to-jump and reset;
+- highlighted last recognized word and smooth corrective scrolling;
+- script library and PDF, DOCX, TXT and Markdown import;
+- 11 Vosk languages downloaded on demand;
+- camera/microphone disclosures, audio-focus interruption handling and
+  foreground-only recording;
+- open-source attribution screen with the Apache 2.0 text bundled offline.
 
-Only the **first** use of each language needs internet; recognition then works
-offline.
+## Project structure
 
-## Importing scripts
+- `match/` — pure Kotlin matching engine (no Android dependencies).
+- `speech/` — Vosk model management, AudioRecord capture, resampling and WAV.
+- `document/` — safe document import and text formatting.
+- `data/` — script and recording stores.
+- `ui/` — Compose screens, CameraX preview/capture and reading stage.
+- `docs/ARCHITECTURE.md` — current technical design.
+- `docs/PLAY_RELEASE_CHECKLIST.md` — release gates and manual Play tasks.
+- `docs/PRIVACY_POLICY.md` — privacy-policy draft to publish under a public URL.
+- `docs/DATA_SAFETY.md` — Play Console declaration notes.
 
-PDF, .docx, .txt and .md can be imported straight into the script field. Text
-is taken as written; a PDF's line breaks are discarded first, because they come
-from the page margin rather than from the writer. Scanned PDFs hold pictures of
-words and yield nothing — they would need OCR. Legacy binary `.doc` is refused
-with a message telling the user to save as `.docx`.
+## Build and test
 
-The stage renders the script exactly as it is written, so blank lines and line
-breaks are how a speaker positions text on the panel. "One line per sentence"
-does the same job automatically and is the fastest way to make an imported wall
-of prose readable aloud.
-
-Scripts can be saved to an on-device library and reopened later; saving again
-updates the same entry rather than leaving a trail of copies.
-
-## Building
-
-Requires JDK 17 and the Android SDK (platform 36, build-tools 36.0.0).
+Requirements: JDK 17 and Android SDK platform/build-tools 36.
 
 ```bash
-./gradlew assembleDebug
+./gradlew testDebugUnitTest assembleDebug
 ```
 
-APK lands in `app/build/outputs/apk/debug/`. Run on a physical phone rather than
-an emulator — microphone quality is the whole point of on-device STT.
-
-The matching engine has no Android dependencies, so its behaviour is covered by
-plain JVM tests:
+Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
 ```bash
-./gradlew testDebugUnitTest
+./gradlew lintDebug bundleRelease
 ```
 
-The project path must be pure ASCII: the Android Gradle Plugin refuses to build
-from a directory containing non-ASCII characters on Windows.
+Release AAB: `app/build/outputs/bundle/release/app-release.aab`. It is unsigned
+unless a gitignored `keystore.properties` exists; see
+`keystore.properties.example`. Never commit the upload keystore or passwords.
+For an actual Play artifact, run `./gradlew verifyReleaseSigning bundleRelease`;
+the verification task fails rather than allowing an unsigned bundle to be
+mistaken for a publishable one.
 
-### Versioning
+On Windows, Android Gradle Plugin can reject non-ASCII project paths. The repo
+sets `android.overridePathCheck=true`; if a tool still fails, build from a copy
+under a plain ASCII path.
 
-`version.properties` at the repo root is the single source of truth. The build
-reads it, and the app shows `BuildConfig.VERSION_NAME` on the home screen, so
-what is displayed can never drift from what was built. Bump `VERSION_CODE` for
-every upload to Play.
+## Versioning and release
 
-### Release builds
+`version.properties` is the single source of truth. Increase `VERSION_CODE` for
+every Play upload. Release builds use R8/resource shrinking and App Bundle ABI,
+density and language splits. Always smoke-test a release build on a physical
+device: JVM tests cannot exercise Vosk/JNA, CameraX or the microphone.
 
-Release is minified and resource-shrunk by R8. Vosk reaches its native library
-reflectively through JNA, so `app/proguard-rules.pro` keeps those classes by
-hand — a release build that skips them installs fine and then dies the moment
-recognition starts. Always smoke-test a signed release on a device before
-shipping; unit tests will not catch this class of failure.
+## Privacy and security
 
-## Security notes
+Audio, video, scripts and imported document text stay on the device unless the
+user explicitly chooses a destination folder or shares/opens a recording with
+another app. The app does not upload user content. Internet access is used only
+to download selected Vosk models over HTTPS.
 
-The downloaded model archive is the app's only untrusted input, and it is
-unpacked and then handed to native code. `VoskModelManager` therefore requires
-HTTPS (including after redirects), verifies a SHA-256 checksum when one is
-pinned for that language, rejects archive entries whose paths escape the
-target directory, caps the unpacked size and entry count, and confirms the
-result actually looks like a Vosk model (a `conf/` directory) before it is
-ever loaded. Backup is disabled entirely (`allowBackup=false`); the
-per-Android-version exclusion rules for models and saved scripts are kept in
-sync anyway so nothing is silently exposed if that ever changes.
+Model downloads enforce HTTPS, reject unsafe redirects, defend against
+zip-slip/zip bombs, validate model structure and support SHA-256 pinning.
+Backup is disabled. FileProvider exposes only the app recording directory and
+uses temporary read grants. DOCX XML parsing disables external entities.
 
-## Roadmap toward release
-
-- Localize the app's own UI chrome per market (currently English).
-- Persist the last-used language; optionally pre-select the device locale.
-- Collect and pin the real SHA-256 for each language's model archive — the
-  verification code is in place (`Language.sha256`) but every entry is still
-  `null`, so nothing is actually checked against a known-good value yet.
-- CJK (Chinese/Japanese) matching works at character level but benefits from
-  real-world tuning of the alignment thresholds per script.
-- Play Store: signing config, Play Asset Delivery vs. current on-demand
-  download, and a paid-app / in-app-purchase setup.
-- Optional: per-language starter scripts, session save (time offset vs. script)
-  for video-edit sync.
-
----
-
-The original Next.js web prototype the engine was ported from lives locally in
-`src_extracted/` (outside the build, git-ignored).
+See `SECURITY.md` for reporting and `docs/PLAY_RELEASE_CHECKLIST.md` for known
+release gates. The source code is proprietary; see `LICENSE`.

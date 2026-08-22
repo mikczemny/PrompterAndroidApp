@@ -10,6 +10,10 @@ All eleven "small" models currently referenced in
 [`Language.kt`](../app/src/main/java/com/mikczemny/prompter/speech/Language.kt) are **Apache
 License 2.0** — no non-commercial clause, no share-alike, no separate commercial tier:
 
+The same official ZIP files were downloaded on 2026-08-12 and their SHA-256
+values pinned in `Language.kt`. `scripts/compute-model-checksums.ps1` reproduces
+the calculation whenever a model version changes.
+
 | Language (code) | Model file | Size (matches `approxMb`) | License |
 |---|---|---|---|
 | English (en) | vosk-model-small-en-us-0.15 | 40M | Apache 2.0 |

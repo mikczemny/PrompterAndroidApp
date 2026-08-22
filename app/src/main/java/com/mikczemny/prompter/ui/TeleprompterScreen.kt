@@ -12,6 +12,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.video.AudioConfig
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -85,6 +86,7 @@ import androidx.annotation.StringRes
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -92,6 +94,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mikczemny.prompter.R
 import com.mikczemny.prompter.data.RecordingStore
 import com.mikczemny.prompter.match.ScriptMatcher
@@ -190,6 +195,7 @@ fun TeleprompterScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
 
     val matcher = remember(script) { ScriptMatcher(script) }
     val words = matcher.displayTokens
@@ -201,6 +207,9 @@ fun TeleprompterScreen(
     var useCountdown by remember { mutableStateOf(true) }
     var buttonPos by remember { mutableStateOf(ButtonPos.CENTER) }
     var showSettings by remember { mutableStateOf(false) }
+    var showMicDisclosure by remember { mutableStateOf(false) }
+    var showCameraDisclosure by remember { mutableStateOf(false) }
+    var leaveAfterRecordingDecision by remember { mutableStateOf(false) }
     // Full brightness by default: the prompter is normally read at arm's length
     // and often against daylight.
     var brightness by remember { mutableFloatStateOf(1f) }
@@ -269,7 +278,7 @@ fun TeleprompterScreen(
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) cameraEnabled = true else cameraPermission.launch(Manifest.permission.CAMERA)
+        if (granted) cameraEnabled = true else showCameraDisclosure = true
     }
 
     // The start-screen choice is a working preset, not merely a label. Selfie
@@ -327,7 +336,7 @@ fun TeleprompterScreen(
             onModelStatus = { status -> mainHandler.post { modelStatus = status } },
             onInterrupted = {
                 mainHandler.post {
-                    errorMsg = context.getString(R.string.recording_interrupted)
+                    errorMsg = resources.getString(R.string.recording_interrupted)
                 }
             },
         )
@@ -344,7 +353,7 @@ fun TeleprompterScreen(
             errorMsg = null
             if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
         } else {
-            errorMsg = context.getString(R.string.mic_permission_denied)
+            errorMsg = resources.getString(R.string.mic_permission_denied)
         }
     }
 
@@ -358,11 +367,39 @@ fun TeleprompterScreen(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            showMicDisclosure = true
             return
         }
         errorMsg = null
         if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
+    }
+
+    fun requestBack() {
+        if (isListening || countdown > 0 || recording) {
+            leaveAfterRecordingDecision = true
+            countdown = 0
+            recognizer.stop()
+        } else if (pendingAudio != null || awaitingVideo) {
+            leaveAfterRecordingDecision = true
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler(onBack = ::requestBack)
+
+    // Never keep the mic or camera recording after the app leaves the
+    // foreground. The finished take is offered for Save/Discard on return.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, recognizer) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && (isListening || countdown > 0)) {
+                countdown = 0
+                recognizer.stop()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Recording follows tracking: it auto-starts once the mic is live, and when
@@ -618,7 +655,7 @@ fun TeleprompterScreen(
                             currentIndex + 1,
                             words.size,
                         ),
-                        onBack = onBack,
+                        onBack = ::requestBack,
                         onToggle = { toggleListening() },
                         cameraEnabled = cameraEnabled,
                         onToggleCamera = { toggleCamera(!cameraEnabled) },
@@ -679,6 +716,44 @@ fun TeleprompterScreen(
         }
     }
 
+    if (showMicDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showMicDisclosure = false },
+            title = { Text(stringResource(R.string.mic_disclosure_title)) },
+            text = { Text(stringResource(R.string.mic_disclosure_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showMicDisclosure = false
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }) { Text(stringResource(R.string.continue_action)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMicDisclosure = false }) {
+                    Text(stringResource(R.string.not_now))
+                }
+            },
+        )
+    }
+
+    if (showCameraDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showCameraDisclosure = false },
+            title = { Text(stringResource(R.string.camera_disclosure_title)) },
+            text = { Text(stringResource(R.string.camera_disclosure_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCameraDisclosure = false
+                    cameraPermission.launch(Manifest.permission.CAMERA)
+                }) { Text(stringResource(R.string.continue_action)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCameraDisclosure = false }) {
+                    Text(stringResource(R.string.not_now))
+                }
+            },
+        )
+    }
+
     // After tracking ends, let the speaker keep or throw away what was recorded
     // before it is written anywhere permanent. Waits for the video (if any) to
     // finish encoding so the pair is saved or discarded together.
@@ -706,11 +781,12 @@ fun TeleprompterScreen(
                         val savedAudio = withContext(Dispatchers.IO) { recordingStore.save(audioToDecide) }
                         val savedVideo = video?.let { withContext(Dispatchers.IO) { recordingStore.save(it) } }
                         val msg = if (savedVideo != null) {
-                            context.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
+                            resources.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
                         } else {
-                            context.getString(R.string.audio_saved, savedAudio.name)
+                            resources.getString(R.string.audio_saved, savedAudio.name)
                         }
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        if (leaveAfterRecordingDecision) onBack()
                     }
                 }) { Text(stringResource(R.string.save)) }
             },
@@ -721,6 +797,9 @@ fun TeleprompterScreen(
                     scope.launch(Dispatchers.IO) {
                         recordingStore.discard(audioToDecide)
                         video?.let { recordingStore.discard(it) }
+                        if (leaveAfterRecordingDecision) {
+                            withContext(Dispatchers.Main) { onBack() }
+                        }
                     }
                 }) { Text(stringResource(R.string.discard)) }
             },

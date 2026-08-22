@@ -23,7 +23,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,9 +60,9 @@ private val COMPONENTS = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LicensesScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val licenseText = remember {
-        context.resources.openRawResource(R.raw.apache_2_0)
+    val resources = LocalResources.current
+    val licenseText = remember(resources) {
+        resources.openRawResource(R.raw.apache_2_0)
             .bufferedReader()
             .use { it.readText() }
     }

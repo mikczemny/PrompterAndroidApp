@@ -10,4 +10,6 @@
 <full-backup-content>
     <exclude domain="file" path="models" />
     <exclude domain="file" path="scripts" />
+    <exclude domain="sharedpref" path="recordings.xml" />
+    <exclude domain="external" path="recordings" />
 </full-backup-content>

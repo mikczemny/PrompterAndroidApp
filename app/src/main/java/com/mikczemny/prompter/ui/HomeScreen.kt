@@ -64,8 +64,10 @@ import androidx.compose.ui.Modifier
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -134,6 +136,7 @@ fun HomeScreen(
     onChangeMode: () -> Unit,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -172,7 +175,7 @@ fun HomeScreen(
                 store.save(text = script.text, id = currentScriptId)
             }
             currentScriptId = saved.id
-            snackbarHostState.showSnackbar(context.getString(R.string.saved_as, saved.title))
+            snackbarHostState.showSnackbar(resources.getString(R.string.saved_as, saved.title))
         }
     }
 
@@ -208,8 +211,9 @@ fun HomeScreen(
                     replaceScript(outcome.text)
                     if (outcome.text.length > HARD_CHAR_LIMIT) {
                         snackbarHostState.showSnackbar(
-                            context.getString(
-                                R.string.import_truncated,
+                            resources.getQuantityString(
+                                R.plurals.import_truncated,
+                                HARD_CHAR_LIMIT,
                                 outcome.fileName,
                                 HARD_CHAR_LIMIT,
                             )
@@ -407,23 +411,13 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        Text(
-                            text = stringResource(R.string.recordings),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable(onClick = onOpenRecordings)
-                                .padding(vertical = 4.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.licenses),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable(onClick = onOpenLicenses)
-                                .padding(vertical = 4.dp),
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = onOpenRecordings) {
+                            Text(stringResource(R.string.recordings))
+                        }
+                        OutlinedButton(onClick = onOpenLicenses) {
+                            Text(stringResource(R.string.licenses))
+                        }
                     }
                 }
 
@@ -577,7 +571,7 @@ private fun ScriptStats(wordCount: Int, charCount: Int, overSoftLimit: Boolean) 
                 Stat(
                     Icons.AutoMirrored.Outlined.Notes,
                     pluralStringResource(R.plurals.words_count, wordCount, wordCount),
-                    stringResource(R.string.characters_caption, charCount),
+                    pluralStringResource(R.plurals.characters_caption, charCount, charCount),
                 )
                 Stat(
                     Icons.Filled.Schedule,
@@ -596,7 +590,11 @@ private fun ScriptStats(wordCount: Int, charCount: Int, overSoftLimit: Boolean) 
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        stringResource(R.string.long_script_warning, HARD_CHAR_LIMIT),
+                        pluralStringResource(
+                            R.plurals.long_script_warning,
+                            HARD_CHAR_LIMIT,
+                            HARD_CHAR_LIMIT,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

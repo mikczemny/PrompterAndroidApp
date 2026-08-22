@@ -3,6 +3,7 @@ package com.mikczemny.prompter.ui
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -155,6 +157,18 @@ fun RecordingsScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        IconButton(onClick = {
+                            stopPlayback()
+                            store.useCameraFolder()
+                            refresh++
+                        }) {
+                            Icon(
+                                Icons.Filled.PhotoLibrary,
+                                contentDescription = stringResource(R.string.use_camera_folder),
+                            )
+                        }
+                    }
                     IconButton(onClick = { folderPicker.launch(null) }) {
                         Icon(
                             Icons.Filled.FolderOpen,

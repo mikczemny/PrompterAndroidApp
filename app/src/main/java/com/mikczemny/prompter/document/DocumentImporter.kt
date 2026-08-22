@@ -93,11 +93,16 @@ object DocumentImporter {
     }
 
     private fun displayName(context: Context, uri: Uri): String? {
-        context.contentResolver
-            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-            ?.use { cursor ->
-                if (cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getString(0)
-            }
+        val cursor = context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        ) ?: return uri.lastPathSegment
+        cursor.use {
+            if (it.moveToFirst() && !it.isNull(0)) return it.getString(0)
+        }
         return uri.lastPathSegment
     }
 }

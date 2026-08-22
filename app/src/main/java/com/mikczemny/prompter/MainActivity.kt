@@ -10,12 +10,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.mikczemny.prompter.data.RecordingStore
 import com.mikczemny.prompter.speech.Languages
 import com.mikczemny.prompter.ui.HomeScreen
 import com.mikczemny.prompter.ui.LicensesScreen
 import com.mikczemny.prompter.ui.ModeSelectionScreen
 import com.mikczemny.prompter.ui.PrompterMode
 import com.mikczemny.prompter.ui.RecordingsScreen
+import com.mikczemny.prompter.ui.RecordingDestinationScreen
 import com.mikczemny.prompter.ui.TeleprompterScreen
 import com.mikczemny.prompter.ui.theme.PrompterTheme
 
@@ -35,6 +38,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun PrompterApp() {
+    val context = LocalContext.current
     // Saved rather than merely remembered, so a pasted script survives process
     // death — losing one to a background kill is the sort of thing that only
     // ever happens when someone is already on camera.
@@ -43,6 +47,9 @@ private fun PrompterApp() {
     var showLicenses by rememberSaveable { mutableStateOf(false) }
     var showRecordings by rememberSaveable { mutableStateOf(false) }
     var modeName by rememberSaveable { mutableStateOf<String?>(null) }
+    var storageConfigured by rememberSaveable {
+        mutableStateOf(RecordingStore(context).isConfigured())
+    }
 
     val currentScript = script
     val mode = modeName?.let { runCatching { PrompterMode.valueOf(it) }.getOrNull() }
@@ -60,6 +67,10 @@ private fun PrompterApp() {
     }
 
     when {
+        !storageConfigured -> RecordingDestinationScreen(
+            onConfigured = { storageConfigured = true },
+        )
+
         mode == null -> ModeSelectionScreen(onSelect = { modeName = it.name })
 
         showLicenses -> LicensesScreen(onBack = { showLicenses = false })
