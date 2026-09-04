@@ -3,7 +3,6 @@ package com.mikczemny.prompter.ui
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -28,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.mikczemny.prompter.R
 import com.mikczemny.prompter.data.Recording
@@ -68,6 +69,8 @@ fun RecordingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { RecordingStore(context) }
+    val appFolderInAppOnlyMessage = stringResource(R.string.app_folder_in_app_only)
+    val folderOpenUnavailableMessage = stringResource(R.string.folder_open_unavailable)
 
     var recordings by remember { mutableStateOf<List<Recording>>(emptyList()) }
     var folderLabel by remember { mutableStateOf<String?>(null) }
@@ -124,6 +127,32 @@ fun RecordingsScreen(onBack: () -> Unit) {
         }.onFailure { playingUri = null }
     }
 
+    fun openSaveFolder() {
+        val uri = store.folderUri()
+        if (uri == null) {
+            Toast.makeText(
+                context,
+                appFolderInAppOnlyMessage,
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setData(uri)
+            .addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        runCatching { context.startActivity(intent) }
+            .onFailure {
+                Toast.makeText(
+                    context,
+                    folderOpenUnavailableMessage,
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+    }
+
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -157,17 +186,15 @@ fun RecordingsScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        IconButton(onClick = {
-                            stopPlayback()
-                            store.useCameraFolder()
-                            refresh++
-                        }) {
-                            Icon(
-                                Icons.Filled.PhotoLibrary,
-                                contentDescription = stringResource(R.string.use_camera_folder),
-                            )
-                        }
+                    IconButton(onClick = {
+                        stopPlayback()
+                        store.useAppFolder()
+                        refresh++
+                    }) {
+                        Icon(
+                            Icons.Filled.PhotoLibrary,
+                            contentDescription = stringResource(R.string.use_app_folder),
+                        )
                     }
                     IconButton(onClick = { folderPicker.launch(null) }) {
                         Icon(
@@ -194,6 +221,16 @@ fun RecordingsScreen(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
+            OutlinedButton(
+                onClick = { openSaveFolder() },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                Text(
+                    stringResource(R.string.open_save_folder),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
 
             if (recordings.isEmpty()) {
                 Text(

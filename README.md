@@ -19,6 +19,10 @@ After Stop, the user explicitly keeps or discards the take. Recordings can be
 listed, played/opened, deleted, and saved either in the app folder or a folder
 chosen through Android's Storage Access Framework.
 
+The save destination is mandatory on first launch and can be changed later from
+the home or Recordings screen. Active prompter and remote-camera screens keep
+their device awake so a normal display timeout cannot interrupt a take.
+
 ## Main capabilities
 
 - fully on-device speech recognition after a language model is downloaded;
@@ -27,6 +31,8 @@ chosen through Android's Storage Access Framework.
 - visible-word-constrained matching, pause detection, tap-to-jump and reset;
 - highlighted last recognized word and smooth corrective scrolling;
 - script library and PDF, DOCX, TXT and Markdown import;
+- automatic local script drafts, restoration of the latest text and optional
+  names with a localized date/time fallback;
 - 11 Vosk languages downloaded on demand;
 - camera/microphone disclosures, audio-focus interruption handling and
   foreground-only recording;

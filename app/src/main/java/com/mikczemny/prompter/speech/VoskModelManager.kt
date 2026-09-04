@@ -73,6 +73,17 @@ object VoskModelManager {
         return model
     }
 
+    /** Downloads and validates a language pack without loading its native model. */
+    @Synchronized
+    fun ensureDownloaded(
+        context: Context,
+        lang: Language,
+        onStatus: (ModelStatus) -> Unit = {},
+    ) {
+        val dir = modelDir(context, lang)
+        if (!isModelReady(context, lang)) downloadAndUnpack(lang, dir, onStatus)
+    }
+
     private fun downloadAndUnpack(lang: Language, dir: File, onStatus: (ModelStatus) -> Unit) {
         onStatus(ModelStatus.Downloading(-1f))
         val url = URL(lang.modelUrl)

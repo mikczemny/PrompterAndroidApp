@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Prompter</string>
+
+    <string name="choose_mode_title">Jak nagrywasz?</string>
+    <string name="choose_mode_caption">Wybierz sposób pracy. Prompter przygotuje odpowiedni układ kamery i tekstu.</string>
+    <string name="selfie_prompter">SelfiePrompter</string>
+    <string name="selfie_prompter_description">Użyj tego urządzenia jako kamery selfie, rejestratora wideo i promptera śledzącego mowę.</string>
+    <string name="ext_prompter">ExtPrompter</string>
+    <string name="ext_prompter_description">Użyj tego urządzenia tylko jako promptera, a nagranie wykonaj osobną kamerą.</string>
+
+    <string name="home_intro">Wklej, zaimportuj lub wpisz tekst, a następnie naciśnij Start. Prompter słucha i przewija w Twoim tempie - po pobraniu pakietu językowego działa całkowicie offline.</string>
+    <string name="label_language">Język</string>
+    <string name="voice_pack_size">Pakiet głosowy około %d MB, pobierany jeden raz</string>
+    <string name="language_selected">%1$s - %2$s</string>
+    <string name="language_option_detail">%1$s - około %2$d MB</string>
+    <string name="import_button">Importuj</string>
+    <string name="reading">Czytanie…</string>
+    <string name="save">Zapisz</string>
+    <string name="library">Biblioteka</string>
+    <string name="one_line_per_sentence">Jedno zdanie w wierszu</string>
+    <string name="label_script">Tekst</string>
+    <string name="script_name_optional">Nazwa tekstu (opcjonalna)</string>
+    <string name="script_name_date_fallback">Bez nazwy tekst zostanie automatycznie zapisany pod datą.</string>
+    <string name="script_date_title">Tekst - %s</string>
+    <string name="version">Wersja %s</string>
+    <string name="saved_as">Zapisano jako „%s”</string>
+    <plurals name="import_truncated">
+        <item quantity="one">Plik %1$s był dłuższy niż %2$d znak i został skrócony.</item>
+        <item quantity="few">Plik %1$s był dłuższy niż %2$d znaki i został skrócony.</item>
+        <item quantity="many">Plik %1$s był dłuższy niż %2$d znaków i został skrócony.</item>
+        <item quantity="other">Plik %1$s był dłuższy niż %2$d znaku i został skrócony.</item>
+    </plurals>
+
+    <string name="qi_period">.</string>
+    <string name="qi_comma">,</string>
+    <string name="qi_question">?</string>
+    <string name="qi_exclamation">!</string>
+    <string name="qi_dash">-</string>
+    <string name="qi_new_line">Nowy wiersz</string>
+    <string name="qi_new_paragraph">Nowy akapit</string>
+
+    <string name="saved_scripts">Zapisane teksty</string>
+    <string name="library_empty">Nie ma jeszcze zapisanych tekstów. Naciśnij Zapisz, aby zachować bieżący tekst.</string>
+    <string name="script_meta">%1$s - %2$s</string>
+    <string name="delete_script">Usuń %s</string>
+
+    <plurals name="characters_caption">
+        <item quantity="one">%d znak</item>
+        <item quantity="few">%d znaki</item>
+        <item quantity="many">%d znaków</item>
+        <item quantity="other">%d znaku</item>
+    </plurals>
+    <string name="reading_pace">przy %d słowach/min</string>
+    <plurals name="long_script_warning">
+        <item quantity="one">Długi tekst - przewijanie może działać wolniej, a limit wynosi %d znak.</item>
+        <item quantity="few">Długi tekst - przewijanie może działać wolniej, a limit wynosi %d znaki.</item>
+        <item quantity="many">Długi tekst - przewijanie może działać wolniej, a limit wynosi %d znaków.</item>
+        <item quantity="other">Długi tekst - przewijanie może działać wolniej, a limit wynosi %d znaku.</item>
+    </plurals>
+    <string name="duration_under_min">poniżej 1 min</string>
+    <string name="duration_min">%d min</string>
+    <string name="duration_min_sec">%1$d min %2$d s</string>
+    <plurals name="words_count">
+        <item quantity="one">%d słowo</item>
+        <item quantity="few">%d słowa</item>
+        <item quantity="many">%d słów</item>
+        <item quantity="other">%d słowa</item>
+    </plurals>
+
+    <string name="mic_permission_denied">Odmówiono dostępu do mikrofonu - prompter nie może śledzić Twojego głosu.</string>
+    <string name="recording_interrupted">Nagrywanie zostało przerwane - inna aplikacja przejęła mikrofon. Naciśnij Start, aby wznowić.</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="get_ready">Przygotuj się…</string>
+    <string name="back_to_menu">Wróć do menu</string>
+    <string name="restart_script">Rozpocznij tekst od początku</string>
+    <string name="settings">Ustawienia</string>
+    <string name="recording_in_progress">Nagrywanie</string>
+    <string name="audio_saved">Zapisano dźwięk: %s</string>
+    <string name="save_recording_title">Zachować to nagranie?</string>
+    <string name="save_recording_message">Zapisz właśnie nagrany dźwięk albo go odrzuć.</string>
+    <string name="save_recording_message_av">Zapisz właśnie nagrany dźwięk i film albo je odrzuć.</string>
+    <string name="recording_saved_av">Zapisano: %1$s + %2$s</string>
+    <string name="recording_save_failed">Nie udało się zapisać nagrania. Plik jest nadal dostępny - spróbuj ponownie albo go odrzuć.</string>
+    <string name="discard">Odrzuć</string>
+
+    <string name="recordings">Nagrania</string>
+    <string name="storage_setup_title">Gdzie zapisywać nagrania?</string>
+    <string name="storage_setup_message">Wybierz raz przed rozpoczęciem pracy. Zapisuj w folderze aplikacji albo wskaż własny folder. Ustawienie możesz później zmienić w ekranie Nagrań.</string>
+    <string name="storage_app_folder">Folder aplikacji Prompter</string>
+    <string name="storage_settings">Folder zapisu</string>
+    <string name="storage_custom_folder">Wybierz własny folder</string>
+    <string name="storage_custom_folder_hint">Wybierając własną lokalizację, najpierw otwórz lub utwórz zwykły podfolder. Android nie pozwala wybrać katalogu głównego pamięci ani chronionych folderów.</string>
+    <string name="storage_setup_privacy">Prompter zapisuje tylko nagrania, które zdecydujesz się zachować. Dźwięk, obraz i teksty nie są wysyłane.</string>
+    <string name="use_app_folder">Użyj folderu aplikacji Prompter</string>
+    <string name="recordings_empty">Nie ma jeszcze nagrań. Naciśnij Start, aby nagrywać podczas czytania.</string>
+    <string name="choose_folder">Wybierz folder</string>
+    <string name="saving_to">Zapisywanie w: %s</string>
+    <string name="folder_app_default">Prompter/recordings</string>
+    <string name="open_save_folder">Otwórz folder zapisu</string>
+    <string name="app_folder_in_app_only">Android chroni folder aplikacji przed eksploratorem plików. Nagrania są dostępne na tym ekranie. Wybierz własny folder, jeśli chcesz przeglądać go także w aplikacji Pliki.</string>
+    <string name="folder_open_unavailable">Ten eksplorator nie potrafi bezpośrednio otworzyć wybranego folderu. Nagrania nadal są dostępne na tym ekranie.</string>
+    <string name="play">Odtwórz</string>
+    <string name="stop_playback">Zatrzymaj</string>
+    <string name="delete_recording">Usuń %s</string>
+    <string name="status_paused">Wstrzymano</string>
+    <string name="status_tracking">Śledzenie</string>
+    <string name="status_line">%1$s - %2$d/%3$d - dotknij słowa, aby przejść</string>
+
+    <string name="setting_font">Czcionka</string>
+    <string name="setting_margin">Margines</string>
+    <string name="setting_screen">Ekran</string>
+    <string name="setting_stage_background">Tło promptera</string>
+    <string name="stage_black">Czarne</string>
+    <string name="stage_mint">Miętowe</string>
+    <string name="stage_camera">Kamera</string>
+    <string name="setting_read_line">Linia czytania</string>
+    <string name="setting_mirror">Lustrzane odbicie</string>
+    <string name="setting_mirror_caption">Do szkła półprzepuszczalnego</string>
+    <string name="setting_countdown">Odliczanie</string>
+    <string name="setting_countdown_caption">3-2-1 przed włączeniem mikrofonu</string>
+    <string name="show_camera">Pokaż kamerę</string>
+    <string name="hide_camera">Ukryj kamerę</string>
+    <string name="mic_disclosure_title">Dostęp do mikrofonu</string>
+    <string name="mic_disclosure_message">Prompter używa mikrofonu tylko podczas aktywnego śledzenia. Ten sam dźwięk pozostaje na urządzeniu, aby śledzić mowę i utworzyć nagranie WAV, które możesz zapisać lub odrzucić. Nigdy nie jest wysyłany ani udostępniany.</string>
+    <string name="camera_disclosure_title">Dostęp do aparatu</string>
+    <string name="camera_disclosure_message">SelfiePrompter używa przedniego aparatu tylko wtedy, gdy podgląd jest widoczny. Po naciśnięciu Start może utworzyć na urządzeniu film MP4 bez dźwięku. Nic nie jest wysyłane ani udostępniane.</string>
+    <string name="continue_action">Kontynuuj</string>
+    <string name="not_now">Nie teraz</string>
+    <string name="setting_button">Przycisk</string>
+    <string name="readout_sp">%d sp</string>
+    <string name="readout_dp">%d dp</string>
+    <string name="readout_percent">%d%%</string>
+    <string name="button_pos_left">Lewo</string>
+    <string name="button_pos_center">Środek</string>
+    <string name="button_pos_right">Prawo</string>
+
+    <string name="model_downloading">Pobieranie pakietu języka %s…</string>
+    <string name="model_loading">Wczytywanie języka %s…</string>
+    <string name="model_downloading_subtitle">Jednorazowo, około %d MB. Później działa całkowicie offline.</string>
+    <string name="model_loading_subtitle">Przygotowywanie rozpoznawania offline…</string>
+    <string name="model_ready">Pakiet językowy gotowy - działa offline</string>
+    <string name="model_download_percent">Pobieranie pakietu językowego: %d%%</string>
+    <string name="model_preparing">Przygotowywanie pakietu językowego…</string>
+    <string name="model_download_failed">Nie udało się pobrać pakietu językowego.</string>
+
+    <string name="doc_fallback_name">dokument</string>
+    <string name="doc_error_legacy_doc">Stare pliki .doc nie są obsługiwane. Otwórz plik w programie Word i zapisz jako .docx.</string>
+    <string name="doc_error_could_not_open">Nie udało się otworzyć pliku %s.</string>
+    <string name="doc_error_no_text">Nie znaleziono tekstu w pliku %s. Zeskanowany PDF zawiera obrazy słów, a nie tekst - najpierw wymaga OCR.</string>
+    <string name="doc_error_could_not_read">Nie udało się odczytać pliku %s.</string>
+    <string name="doc_error_pdf_protected">Ten plik PDF jest chroniony hasłem.</string>
+    <string name="doc_error_not_word">Ten plik nie jest prawidłowym dokumentem programu Word.</string>
+    <string name="doc_error_word_unreadable">Nie udało się odczytać dokumentu programu Word.</string>
+
+    <string name="licenses">Licencje open source</string>
+    <string name="licenses_intro">Prompter korzysta z oprogramowania open source. Silnik rozpoznawania mowy i wszystkie pobierane pakiety językowe pochodzą z Vosk / Alpha Cephei na licencji Apache License 2.0.</string>
+    <string name="licenses_components">Komponenty</string>
+    <string name="license_apache">Apache License 2.0</string>
+    <string name="licenses_full_text_title">Apache License 2.0</string>
+
+    <string name="remote_camera">Kamera zdalna</string>
+    <string name="remote_camera_description">Użyj telefonu jako bezprzewodowej kamery, a drugiego urządzenia jako promptera.</string>
+    <string name="remote_role_title">Wybierz rolę tego urządzenia</string>
+    <string name="remote_role_description">Zainstaluj Prompter na obu urządzeniach i połącz je z tą samą lokalną siecią Wi-Fi.</string>
+    <string name="remote_role_camera">Użyj jako telefonu z kamerą</string>
+    <string name="remote_role_prompter">Użyj jako promptera i kontrolera</string>
+    <string name="remote_camera_disclosure">Prompter używa aparatu, aby przesyłać zaszyfrowany podgląd wyłącznie do urządzenia połączonego wyświetlonym kodem. Podgląd nie jest wysyłany do internetu.</string>
+    <string name="remote_camera_permission_needed">Dostęp do aparatu jest wymagany w trybie Kamery zdalnej.</string>
+    <string name="remote_camera_ready">Kamera zdalna jest gotowa</string>
+    <string name="remote_waiting_for_tablet">Oczekiwanie na prompter. Gdy drugie urządzenie znajdzie telefon, wpisz na nim ten kod.</string>
+    <string name="remote_camera_address">Adres kamery: %s</string>
+    <string name="remote_pairing_code">Kod parowania: %s</string>
+    <string name="remote_pairing_code_label">6-cyfrowy kod parowania</string>
+    <string name="remote_connect_title">Połącz z telefonem-kamerą</string>
+    <string name="remote_ip_address">Adres IP telefonu-kamery</string>
+    <string name="remote_ip_address_optional">Adres IP kamery (uzupełniany automatycznie)</string>
+    <string name="remote_camera_searching">Szukanie telefonu-kamery…</string>
+    <string name="remote_camera_found">Znaleziono: %s</string>
+    <string name="remote_connect">Połącz</string>
+    <string name="remote_connected">Połączono - zaszyfrowany podgląd jest aktywny.</string>
+    <string name="remote_not_connected">Brak połączenia</string>
+    <string name="remote_preview">Podgląd zdalnej kamery</string>
+    <string name="theme_system">Systemowy</string>
+    <string name="theme_light">Dzienny</string>
+    <string name="theme_dark">Nocny</string>
+</resources>

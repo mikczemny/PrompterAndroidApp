@@ -49,11 +49,20 @@ the script dynamically reserves the corresponding left or right column.
 
 File output is private cache until Save. Saved recordings go to the app's
 external-files `recordings/` directory or a persisted SAF tree selected by the
-user. `FileProvider` exposes only that recording directory to external players.
+user. Destination setup is versioned and mandatory before entering the app;
+it can be reopened from the home and Recordings screens. `FileProvider`
+exposes only the app recording directory to external players.
+
+Both the teleprompter stage and the remote-camera host hold
+`FLAG_KEEP_SCREEN_ON` only while visible. This prevents Android's inactivity
+timeout from stopping CameraX on a tripod-mounted camera phone.
 
 ## Documents and local data
 
 - `ScriptStore`: one private UTF-8 text file per saved script.
+- `HomeScreen`: restores the newest script, debounces automatic local saves and
+  saves immediately before entering the stage; unnamed scripts use a localized
+  date/time title.
 - `RecordingStore`: temporary capture, explicit Save/Discard, SAF/app-folder
   listing and deletion, plus cleanup of abandoned cache takes.
 - `DocumentImporter`: SAF-only input, PDFBox text extraction, bounded DOCX SAX

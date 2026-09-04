@@ -22,6 +22,9 @@
     <string name="library">Library</string>
     <string name="one_line_per_sentence">One line per sentence</string>
     <string name="label_script">Script</string>
+    <string name="script_name_optional">Script name (optional)</string>
+    <string name="script_name_date_fallback">Without a name, the script is saved automatically under its date.</string>
+    <string name="script_date_title">Script - %s</string>
     <string name="version">Version %s</string>
     <string name="saved_as">Saved as \"%s\"</string>
     <plurals name="import_truncated">
@@ -78,21 +81,26 @@
     <string name="save_recording_message">Save the audio you just recorded, or discard it.</string>
     <string name="save_recording_message_av">Save the audio and video you just recorded, or discard them.</string>
     <string name="recording_saved_av">Saved: %1$s + %2$s</string>
+    <string name="recording_save_failed">Could not save the recording. The file is still available - try again or discard it.</string>
     <string name="discard">Discard</string>
 
     <!-- Recordings library -->
     <string name="recordings">Recordings</string>
     <string name="storage_setup_title">Where should recordings be saved?</string>
-    <string name="storage_setup_message">Choose once before using Prompter. You can change this later from Recordings.</string>
-    <string name="storage_camera_folder">Camera folder (DCIM/Camera)</string>
+    <string name="storage_setup_message">Choose once before using Prompter. Save in the app folder or select your own folder. You can change this later from Recordings.</string>
+    <string name="storage_app_folder">Prompter app folder</string>
+    <string name="storage_settings">Save folder</string>
     <string name="storage_custom_folder">Choose another folder</string>
-    <string name="storage_camera_folder_unavailable">The standard Camera folder requires Android 10 or newer. Choose another folder on this device.</string>
+    <string name="storage_custom_folder_hint">When choosing your own location, open or create a regular subfolder first. Android does not allow selecting the storage root or protected folders.</string>
     <string name="storage_setup_privacy">Prompter writes only recordings you choose to keep. Your audio, video and scripts are not uploaded.</string>
-    <string name="use_camera_folder">Use Camera folder</string>
+    <string name="use_app_folder">Use Prompter app folder</string>
     <string name="recordings_empty">No recordings yet. Press Start to record while you read.</string>
     <string name="choose_folder">Choose folder</string>
     <string name="saving_to">Saving to: %s</string>
-    <string name="folder_app_default">Recording folder not configured</string>
+    <string name="folder_app_default">Prompter/recordings</string>
+    <string name="open_save_folder">Open save folder</string>
+    <string name="app_folder_in_app_only">Android protects the app folder from file managers. Your recordings are available on this screen. Choose your own folder if you also want to browse it in the Files app.</string>
+    <string name="folder_open_unavailable">This file manager cannot open the selected folder directly. Your recordings are still available on this screen.</string>
     <string name="play">Play</string>
     <string name="stop_playback">Stop</string>
     <string name="delete_recording">Delete %s</string>
@@ -104,6 +112,10 @@
     <string name="setting_font">Font</string>
     <string name="setting_margin">Margin</string>
     <string name="setting_screen">Screen</string>
+    <string name="setting_stage_background">Prompter background</string>
+    <string name="stage_black">Black</string>
+    <string name="stage_mint">Mint</string>
+    <string name="stage_camera">Camera</string>
     <string name="setting_read_line">Read line</string>
     <string name="setting_mirror">Mirror</string>
     <string name="setting_mirror_caption">For beam-splitter glass</string>
@@ -132,6 +144,10 @@
     <string name="model_loading">Loading %s…</string>
     <string name="model_downloading_subtitle">One-time, ~%d MB. Works fully offline afterwards.</string>
     <string name="model_loading_subtitle">Preparing offline recognition…</string>
+    <string name="model_ready">Language pack ready - works offline</string>
+    <string name="model_download_percent">Downloading language pack: %d%%</string>
+    <string name="model_preparing">Preparing language pack...</string>
+    <string name="model_download_failed">Could not download the language pack.</string>
 
     <!-- Document import -->
     <string name="doc_fallback_name">document</string>
@@ -149,4 +165,29 @@
     <string name="licenses_components">Components</string>
     <string name="license_apache">Apache License 2.0</string>
     <string name="licenses_full_text_title">Apache License 2.0</string>
+    <string name="remote_camera">Remote Camera</string>
+    <string name="remote_camera_description">Use a phone as a wireless camera and another device as the prompter.</string>
+    <string name="remote_role_title">Choose this device\'s role</string>
+    <string name="remote_role_description">Install Prompter on both devices and connect them to the same local Wi-Fi.</string>
+    <string name="remote_role_camera">Use as camera phone</string>
+    <string name="remote_role_prompter">Use as prompter and controller</string>
+    <string name="remote_camera_disclosure">Prompter uses this camera to send an encrypted live preview only to the device paired with the displayed code. The preview is not uploaded.</string>
+    <string name="remote_camera_permission_needed">Camera permission is required for Remote Camera.</string>
+    <string name="remote_camera_ready">Remote camera ready</string>
+    <string name="remote_waiting_for_tablet">Waiting for the prompter device. Enter this code there after it finds the phone.</string>
+    <string name="remote_camera_address">Camera address: %s</string>
+    <string name="remote_pairing_code">Pairing code: %s</string>
+    <string name="remote_pairing_code_label">6-digit pairing code</string>
+    <string name="remote_connect_title">Connect to camera phone</string>
+    <string name="remote_ip_address">Camera IP address</string>
+    <string name="remote_ip_address_optional">Camera IP address (filled automatically)</string>
+    <string name="remote_camera_searching">Searching for a camera phone...</string>
+    <string name="remote_camera_found">Found: %s</string>
+    <string name="remote_connect">Connect</string>
+    <string name="remote_connected">Connected - encrypted preview active.</string>
+    <string name="remote_not_connected">Not connected</string>
+    <string name="remote_preview">Remote camera preview</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Day</string>
+    <string name="theme_dark">Night</string>
 </resources>

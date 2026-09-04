@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoCameraFront
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,9 +29,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mikczemny.prompter.R
+import com.mikczemny.prompter.ui.theme.ThemeMode
 
 @Composable
-fun ModeSelectionScreen(onSelect: (PrompterMode) -> Unit) {
+fun ModeSelectionScreen(
+    onSelect: (PrompterMode) -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -47,6 +54,26 @@ fun ModeSelectionScreen(onSelect: (PrompterMode) -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(18.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeMode.entries.forEach { option ->
+                FilterChip(
+                    selected = themeMode == option,
+                    onClick = { onThemeModeChange(option) },
+                    label = {
+                        Text(
+                            stringResource(
+                                when (option) {
+                                    ThemeMode.SYSTEM -> R.string.theme_system
+                                    ThemeMode.LIGHT -> R.string.theme_light
+                                    ThemeMode.DARK -> R.string.theme_dark
+                                }
+                            )
+                        )
+                    },
+                )
+            }
+        }
         Spacer(Modifier.height(28.dp))
         ModeCard(
             icon = Icons.Filled.PhotoCameraFront,
@@ -60,6 +87,13 @@ fun ModeSelectionScreen(onSelect: (PrompterMode) -> Unit) {
             title = stringResource(R.string.ext_prompter),
             description = stringResource(R.string.ext_prompter_description),
             onClick = { onSelect(PrompterMode.EXTERNAL) },
+        )
+        Spacer(Modifier.height(16.dp))
+        ModeCard(
+            icon = Icons.Filled.WifiTethering,
+            title = stringResource(R.string.remote_camera),
+            description = stringResource(R.string.remote_camera_description),
+            onClick = { onSelect(PrompterMode.REMOTE) },
         )
     }
 }

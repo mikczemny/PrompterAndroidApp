@@ -1,6 +1,7 @@
 package com.mikczemny.prompter.ui
 
 import android.Manifest
+import android.graphics.Bitmap
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +17,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,6 +71,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -79,11 +82,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.annotation.StringRes
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
@@ -117,6 +123,27 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val PX_PER_SEC_MAX = 900f
+private val MINT_STAGE_BACKGROUND = Color(0xFFE5F4EC)
+
+private fun Bitmap.adaptiveTextColor(): Color {
+    if (isRecycled || width == 0 || height == 0) return Color.White
+    var luminance = 0.0
+    var samples = 0
+    val stepX = maxOf(1, width / 12)
+    val stepY = maxOf(1, height / 12)
+    for (y in stepY / 2 until height step stepY) {
+        for (x in stepX / 2 until width step stepX) {
+            val pixel = getPixel(x, y)
+            luminance += (
+                0.2126 * android.graphics.Color.red(pixel) +
+                    0.7152 * android.graphics.Color.green(pixel) +
+                    0.0722 * android.graphics.Color.blue(pixel)
+                ) / 255.0
+            samples++
+        }
+    }
+    return if (samples > 0 && luminance / samples > 0.58) Color.Black else Color.White
+}
 private const val SCROLL_LERP = 0.12f
 
 /**
@@ -146,6 +173,12 @@ private enum class ButtonPos(@StringRes val labelRes: Int) {
     LEFT(R.string.button_pos_left),
     CENTER(R.string.button_pos_center),
     RIGHT(R.string.button_pos_right),
+}
+
+private enum class StageView(@StringRes val labelRes: Int) {
+    BLACK(R.string.stage_black),
+    MINT(R.string.stage_mint),
+    CAMERA(R.string.stage_camera),
 }
 
 /**
@@ -192,6 +225,7 @@ fun TeleprompterScreen(
     script: String,
     language: Language,
     mode: PrompterMode,
+    remoteFrame: Bitmap? = null,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -206,6 +240,7 @@ fun TeleprompterScreen(
     var anchorFraction by remember { mutableFloatStateOf(DEFAULT_ANCHOR) }
     var useCountdown by remember { mutableStateOf(true) }
     var buttonPos by remember { mutableStateOf(ButtonPos.CENTER) }
+    var stageView by remember { mutableStateOf(StageView.BLACK) }
     var showSettings by remember { mutableStateOf(false) }
     var showMicDisclosure by remember { mutableStateOf(false) }
     var showCameraDisclosure by remember { mutableStateOf(false) }
@@ -245,6 +280,7 @@ fun TeleprompterScreen(
     // carry an open preview into ExtPrompter. External mode starts text-only,
     // but keeps the camera button as an explicit opt-in.
     var cameraEnabled by remember(mode) { mutableStateOf(false) }
+    var remotePreviewEnabled by remember(mode) { mutableStateOf(mode == PrompterMode.REMOTE) }
     var cameraBounds by remember(mode) { mutableStateOf<CameraWindowBounds?>(null) }
     val cameraPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -391,9 +427,14 @@ fun TeleprompterScreen(
     // Never keep the mic or camera recording after the app leaves the
     // foreground. The finished take is offered for Save/Discard on return.
     val lifecycleOwner = LocalLifecycleOwner.current
+    val listeningForLifecycle by rememberUpdatedState(isListening)
+    val countdownForLifecycle by rememberUpdatedState(countdown)
     DisposableEffect(lifecycleOwner, recognizer) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && (isListening || countdown > 0)) {
+            if (
+                event == Lifecycle.Event.ON_STOP &&
+                (listeningForLifecycle || countdownForLifecycle > 0)
+            ) {
                 countdown = 0
                 recognizer.stop()
             }
@@ -511,11 +552,20 @@ fun TeleprompterScreen(
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = StageColors.Background,
+        color = if (stageView == StageView.MINT) MINT_STAGE_BACKGROUND else StageColors.Background,
         contentColor = StageColors.Foreground,
     ) {
         val density = LocalDensity.current
-        val camera = cameraBounds.takeIf { cameraEnabled }
+        val remotePreviewVisible = mode == PrompterMode.REMOTE && remotePreviewEnabled && remoteFrame != null
+        val previewVisible = cameraEnabled || remotePreviewVisible
+        val cameraFullscreen = stageView == StageView.CAMERA && previewVisible
+        val camera = cameraBounds.takeIf { previewVisible && !cameraFullscreen }
+        val stageTextColor = when {
+            cameraFullscreen && remoteFrame != null -> remoteFrame.adaptiveTextColor()
+            cameraFullscreen -> Color.White
+            stageView == StageView.MINT -> Color(0xFF14251D)
+            else -> StageColors.Foreground
+        }
         val cameraGapPx = with(density) { 12.dp.toPx() }
         val visualStartPx = if (camera != null && camera.centerX <= camera.containerWidth / 2f) {
             camera.right + cameraGapPx
@@ -535,6 +585,19 @@ fun TeleprompterScreen(
         val textEndPadding = with(density) { maxOf(margin.dp.toPx(), logicalEndPx).toDp() }
 
         Box(modifier = Modifier.fillMaxSize()) {
+            if (cameraFullscreen) {
+                if (mode == PrompterMode.REMOTE && remoteFrame != null) {
+                    Image(
+                        bitmap = remoteFrame.asImageBitmap(),
+                        contentDescription = stringResource(R.string.remote_preview),
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else if (cameraEnabled) {
+                    CameraPreview(cameraController, Modifier.fillMaxSize())
+                }
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f)))
+            }
             Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
 
                 // ---- Reading stage (text only) ----
@@ -558,10 +621,16 @@ fun TeleprompterScreen(
                     ) {
                         Text(
                             text = script,
-                            color = StageColors.Foreground,
+                            color = stageTextColor,
                             style = TextStyle(
                                 fontSize = fontSize.sp,
                                 lineHeight = (fontSize * 1.35f).sp,
+                                shadow = if (cameraFullscreen) {
+                                    Shadow(
+                                        color = if (stageTextColor == Color.White) Color.Black else Color.White,
+                                        blurRadius = 10f,
+                                    )
+                                } else null,
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -657,8 +726,15 @@ fun TeleprompterScreen(
                         ),
                         onBack = ::requestBack,
                         onToggle = { toggleListening() },
-                        cameraEnabled = cameraEnabled,
-                        onToggleCamera = { toggleCamera(!cameraEnabled) },
+                        cameraEnabled = previewVisible,
+                        onToggleCamera = {
+                            if (mode == PrompterMode.REMOTE) {
+                                remotePreviewEnabled = !remotePreviewEnabled
+                                if (!remotePreviewEnabled) cameraBounds = null
+                            } else {
+                                toggleCamera(!cameraEnabled)
+                            }
+                        },
                         onRestart = { moveTo(-1) },
                         onToggleSettings = { showSettings = true },
                         recording = recording,
@@ -680,11 +756,20 @@ fun TeleprompterScreen(
             ReadingProgressBar(progress = progress, modifier = Modifier.align(Alignment.TopCenter))
 
             // Drawn last so the selfie window floats above script and overlays.
-            if (cameraEnabled) {
+            if (cameraEnabled && !cameraFullscreen) {
                 FloatingCameraWindow(
                     controller = cameraController,
                     onBoundsChange = { cameraBounds = it },
                     onClose = { toggleCamera(false) },
+                )
+            } else if (remotePreviewVisible && remoteFrame != null && !cameraFullscreen) {
+                FloatingRemoteCameraWindow(
+                    bitmap = remoteFrame,
+                    onBoundsChange = { cameraBounds = it },
+                    onClose = {
+                        remotePreviewEnabled = false
+                        cameraBounds = null
+                    },
                 )
             }
         }
@@ -705,6 +790,7 @@ fun TeleprompterScreen(
                 mirror = mirror,
                 useCountdown = useCountdown,
                 buttonPos = buttonPos,
+                stageView = stageView,
                 onFontSize = { fontSize = it },
                 onMargin = { margin = it },
                 onBrightness = { brightness = it },
@@ -712,6 +798,13 @@ fun TeleprompterScreen(
                 onMirror = { mirror = it },
                 onCountdown = { useCountdown = it },
                 onButtonPos = { buttonPos = it },
+                onStageView = { selected ->
+                    stageView = selected
+                    cameraBounds = null
+                    if (selected == StageView.CAMERA) {
+                        if (mode == PrompterMode.REMOTE) remotePreviewEnabled = true else toggleCamera(true)
+                    }
+                },
             )
         }
     }
@@ -775,18 +868,26 @@ fun TeleprompterScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    pendingAudio = null
-                    pendingVideo = null
                     scope.launch {
-                        val savedAudio = withContext(Dispatchers.IO) { recordingStore.save(audioToDecide) }
-                        val savedVideo = video?.let { withContext(Dispatchers.IO) { recordingStore.save(it) } }
-                        val msg = if (savedVideo != null) {
-                            resources.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
-                        } else {
-                            resources.getString(R.string.audio_saved, savedAudio.name)
+                        try {
+                            val savedAudio = withContext(Dispatchers.IO) { recordingStore.save(audioToDecide) }
+                            val savedVideo = video?.let { withContext(Dispatchers.IO) { recordingStore.save(it) } }
+                            pendingAudio = null
+                            pendingVideo = null
+                            val msg = if (savedVideo != null) {
+                                resources.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
+                            } else {
+                                resources.getString(R.string.audio_saved, savedAudio.name)
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            if (leaveAfterRecordingDecision) onBack()
+                        } catch (_: Exception) {
+                            Toast.makeText(
+                                context,
+                                resources.getString(R.string.recording_save_failed),
+                                Toast.LENGTH_LONG,
+                            ).show()
                         }
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                        if (leaveAfterRecordingDecision) onBack()
                     }
                 }) { Text(stringResource(R.string.save)) }
             },
@@ -1024,6 +1125,7 @@ private fun SettingsPanel(
     mirror: Boolean,
     useCountdown: Boolean,
     buttonPos: ButtonPos,
+    stageView: StageView,
     onFontSize: (Float) -> Unit,
     onMargin: (Float) -> Unit,
     onBrightness: (Float) -> Unit,
@@ -1031,6 +1133,7 @@ private fun SettingsPanel(
     onMirror: (Boolean) -> Unit,
     onCountdown: (Boolean) -> Unit,
     onButtonPos: (ButtonPos) -> Unit,
+    onStageView: (StageView) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1054,6 +1157,24 @@ private fun SettingsPanel(
             readout = stringResource(R.string.readout_sp, fontSize.roundToInt()),
             onValueChange = onFontSize,
         )
+        Text(
+            stringResource(R.string.setting_stage_background),
+            fontSize = 14.sp,
+            color = StageColors.Muted,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StageView.entries.forEach { view ->
+                Button(
+                    onClick = { onStageView(view) },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (view == stageView) StageColors.Go else StageColors.PanelRaised,
+                        contentColor = Color.White,
+                    ),
+                ) { Text(stringResource(view.labelRes), fontSize = 13.sp) }
+            }
+        }
         SettingSlider(
             label = stringResource(R.string.setting_margin),
             value = margin,

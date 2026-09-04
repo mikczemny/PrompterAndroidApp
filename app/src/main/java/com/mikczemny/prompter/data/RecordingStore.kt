@@ -1,11 +1,7 @@
 package com.mikczemny.prompter.data
 
-import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
@@ -19,7 +15,7 @@ data class Recording(
     val lastModified: Long,
 )
 
-enum class RecordingDestination { CAMERA, CUSTOM }
+enum class RecordingDestination { APP, CUSTOM }
 
 /**
  * Where recordings go and how they are listed back.
@@ -52,16 +48,34 @@ class RecordingStore(private val context: Context) {
     fun newTempFile(name: String): File =
         File(File(context.cacheDir, TEMP_DIR).apply { mkdirs() }, name)
 
-    fun isConfigured(): Boolean = prefs.contains(KEY_DESTINATION) || prefs.contains(KEY_TREE)
+    fun isConfigured(): Boolean {
+        if (prefs.getInt(KEY_SETUP_VERSION, 0) < CURRENT_SETUP_VERSION) return false
+        return when (destination()) {
+            RecordingDestination.APP -> true
+            RecordingDestination.CUSTOM -> {
+                val uri = folderUri() ?: return false
+                context.contentResolver.persistedUriPermissions.any {
+                    it.uri == uri && it.isReadPermission && it.isWritePermission
+                }
+            }
+            null -> false
+        }
+    }
 
     fun destination(): RecordingDestination? = prefs.getString(KEY_DESTINATION, null)
-        ?.let { runCatching { RecordingDestination.valueOf(it) }.getOrNull() }
+        ?.let { stored ->
+            // Migrate the former Camera-folder choice to app storage. That
+            // destination split MP4 and WAV across incompatible MediaStore
+            // collections and could crash while saving audio on Android 10+.
+            if (stored == "CAMERA") RecordingDestination.APP
+            else runCatching { RecordingDestination.valueOf(stored) }.getOrNull()
+        }
         ?: if (prefs.contains(KEY_TREE)) RecordingDestination.CUSTOM else null
 
-    fun useCameraFolder() {
-        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+    fun useAppFolder() {
         prefs.edit {
-            putString(KEY_DESTINATION, RecordingDestination.CAMERA.name)
+            putString(KEY_DESTINATION, RecordingDestination.APP.name)
+            putInt(KEY_SETUP_VERSION, CURRENT_SETUP_VERSION)
             remove(KEY_TREE)
         }
     }
@@ -74,13 +88,14 @@ class RecordingStore(private val context: Context) {
         prefs.edit {
             putString(KEY_DESTINATION, RecordingDestination.CUSTOM.name)
             putString(KEY_TREE, uri.toString())
+            putInt(KEY_SETUP_VERSION, CURRENT_SETUP_VERSION)
         }
     }
 
     /** Human-readable name of the current destination, for the settings row. */
     fun folderLabel(): String? {
         return when (destination()) {
-            RecordingDestination.CAMERA -> "DCIM/Camera"
+            RecordingDestination.APP -> "Prompter/recordings"
             RecordingDestination.CUSTOM -> {
                 val uri = folderUri() ?: return null
                 DocumentFile.fromTreeUri(context, uri)?.name ?: uri.lastPathSegment
@@ -95,9 +110,6 @@ class RecordingStore(private val context: Context) {
             "video/mp4"
         } else {
             "audio/x-wav"
-        }
-        if (destination() == RecordingDestination.CAMERA && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return saveToCameraFolder(temp, mime)
         }
         val treeUri = folderUri()
         if (destination() == RecordingDestination.CUSTOM && treeUri != null) {
@@ -126,39 +138,6 @@ class RecordingStore(private val context: Context) {
         return saveToDefaultDirectory(temp)
     }
 
-    private fun saveToCameraFolder(temp: File, mime: String): Recording {
-        val collection = if (mime.startsWith("video/")) {
-            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        } else {
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        }
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, temp.name)
-            put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, CAMERA_PATH)
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val uri = context.contentResolver.insert(collection, values)
-            ?: return saveToDefaultDirectory(temp)
-        return try {
-            context.contentResolver.openOutputStream(uri, "w")!!.use { out ->
-                temp.inputStream().use { it.copyTo(out) }
-            }
-            context.contentResolver.update(
-                uri,
-                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
-                null,
-                null,
-            )
-            val result = Recording(temp.name, uri, temp.length(), System.currentTimeMillis())
-            temp.delete()
-            result
-        } catch (error: Exception) {
-            context.contentResolver.delete(uri, null, null)
-            saveToDefaultDirectory(temp)
-        }
-    }
-
     private fun saveToDefaultDirectory(temp: File): Recording {
         val dest = File(defaultDir, temp.name)
         temp.copyTo(dest, overwrite = true)
@@ -173,9 +152,6 @@ class RecordingStore(private val context: Context) {
 
     /** Lists saved recordings, newest first, from the active destination. */
     fun list(): List<Recording> {
-        if (destination() == RecordingDestination.CAMERA && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return listCameraFolder()
-        }
         val treeUri = folderUri()
         val items = if (destination() == RecordingDestination.CUSTOM && treeUri != null) {
             val dir = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
@@ -188,41 +164,6 @@ class RecordingStore(private val context: Context) {
                 .map { Recording(it.name, Uri.fromFile(it), it.length(), it.lastModified()) }
         }
         return items.sortedByDescending { it.lastModified }
-    }
-
-    private fun listCameraFolder(): List<Recording> {
-        val result = mutableListOf<Recording>()
-        listOf(
-            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-        ).forEach { collection ->
-            context.contentResolver.query(
-                collection,
-                arrayOf(
-                    MediaStore.MediaColumns._ID,
-                    MediaStore.MediaColumns.DISPLAY_NAME,
-                    MediaStore.MediaColumns.SIZE,
-                    MediaStore.MediaColumns.DATE_MODIFIED,
-                ),
-                "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
-                arrayOf(CAMERA_PATH, "prompter_%"),
-                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
-            )?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
-                while (cursor.moveToNext()) {
-                    result += Recording(
-                        cursor.getString(nameColumn),
-                        Uri.withAppendedPath(collection, cursor.getLong(idColumn).toString()),
-                        cursor.getLong(sizeColumn),
-                        cursor.getLong(dateColumn) * 1000L,
-                    )
-                }
-            }
-        }
-        return result.sortedByDescending { it.lastModified }
     }
 
     /** Deletes a saved recording, whichever backing store it came from. */
@@ -244,7 +185,8 @@ class RecordingStore(private val context: Context) {
         const val PREFS = "recordings"
         const val KEY_TREE = "tree_uri"
         const val KEY_DESTINATION = "destination"
+        const val KEY_SETUP_VERSION = "setup_version"
+        const val CURRENT_SETUP_VERSION = 2
         const val TEMP_DIR = "recordings"
-        val CAMERA_PATH: String = Environment.DIRECTORY_DCIM + "/Camera/"
     }
 }

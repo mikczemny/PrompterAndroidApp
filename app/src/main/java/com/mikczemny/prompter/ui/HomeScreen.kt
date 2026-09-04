@@ -1,5 +1,7 @@
 package com.mikczemny.prompter.ui
 
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -82,7 +84,10 @@ import com.mikczemny.prompter.document.oneSentencePerLine
 import com.mikczemny.prompter.match.splitWords
 import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.speech.Languages
+import com.mikczemny.prompter.speech.ModelStatus
+import com.mikczemny.prompter.speech.VoskModelManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -102,6 +107,8 @@ private const val SOFT_CHAR_LIMIT = 10_000
  * node, so this is a real constraint rather than a policy one.
  */
 private const val HARD_CHAR_LIMIT = 20_000
+private const val AUTOSAVE_DELAY_MS = 800L
+private const val MAX_SCRIPT_TITLE_LENGTH = 80
 
 /** Unhurried presenting pace, used only for the reading-time estimate. */
 private const val SPEAKING_WORDS_PER_MINUTE = 140.0
@@ -132,6 +139,7 @@ fun HomeScreen(
     onStart: (script: String, language: Language) -> Unit,
     onOpenLicenses: () -> Unit = {},
     onOpenRecordings: () -> Unit = {},
+    onConfigureStorage: () -> Unit = {},
     mode: PrompterMode,
     onChangeMode: () -> Unit,
 ) {
@@ -139,6 +147,7 @@ fun HomeScreen(
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
     var language by remember { mutableStateOf(initialLanguage) }
     // A TextFieldValue rather than a String, because the editing controls insert
@@ -146,11 +155,17 @@ fun HomeScreen(
     var script by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(initialLanguage.sample))
     }
+    var scriptTitle by rememberSaveable { mutableStateOf("") }
     // Tracks whether the user has hand-edited the script; if not, switching
     // language swaps in that language's sample so the picker is easy to try.
     var edited by rememberSaveable { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    var languagePackReady by remember(language) {
+        mutableStateOf(VoskModelManager.isModelReady(context, language))
+    }
+    var languagePackStatus by remember(language) { mutableStateOf<ModelStatus?>(null) }
+    var languagePackError by remember(language) { mutableStateOf<String?>(null) }
 
     val store = remember { ScriptStore(File(context.filesDir, "scripts")) }
     var showLibrary by remember { mutableStateOf(false) }
@@ -158,10 +173,35 @@ fun HomeScreen(
     // Which stored script the field currently holds, so saving again updates it
     // instead of leaving a trail of near-identical copies.
     var currentScriptId by rememberSaveable { mutableStateOf<String?>(null) }
+    var latestRestored by remember { mutableStateOf(false) }
+    var automaticTitle by rememberSaveable { mutableStateOf<String?>(null) }
 
     val text = script.text
     val wordCount = remember(text) { splitWords(text).size }
     val overSoftLimit = text.length > SOFT_CHAR_LIMIT
+
+    LaunchedEffect(language) {
+        val requestedCode = language.code
+        languagePackReady = VoskModelManager.isModelReady(context, language)
+        languagePackError = null
+        if (!languagePackReady) {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    VoskModelManager.ensureDownloaded(context, language) { status ->
+                        mainHandler.post {
+                            if (language.code == requestedCode) languagePackStatus = status
+                        }
+                    }
+                }
+            }.onSuccess {
+                languagePackReady = true
+                languagePackStatus = null
+            }.onFailure {
+                languagePackStatus = null
+                languagePackError = it.message ?: resources.getString(R.string.model_download_failed)
+            }
+        }
+    }
 
     /** Replaces the whole script, parking the cursor at the start. */
     fun replaceScript(newText: String) {
@@ -169,14 +209,50 @@ fun HomeScreen(
         edited = true
     }
 
-    fun saveScript() {
-        scope.launch {
-            val saved = withContext(Dispatchers.IO) {
-                store.save(text = script.text, id = currentScriptId)
-            }
-            currentScriptId = saved.id
+    fun datedTitle(): String = resources.getString(
+        R.string.script_date_title,
+        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date()),
+    )
+
+    suspend fun persistScript(showConfirmation: Boolean): SavedScript? {
+        if (script.text.isBlank()) return null
+        val resolvedTitle = scriptTitle.trim().ifEmpty {
+            automaticTitle ?: datedTitle().also { automaticTitle = it }
+        }
+        val saved = withContext(Dispatchers.IO) {
+            store.save(text = script.text, title = resolvedTitle, id = currentScriptId)
+        }
+        currentScriptId = saved.id
+        if (showConfirmation) {
             snackbarHostState.showSnackbar(resources.getString(R.string.saved_as, saved.title))
         }
+        return saved
+    }
+
+    fun saveScript() {
+        scope.launch { persistScript(showConfirmation = true) }
+    }
+
+    // Restore the newest script before autosave is enabled. The files are
+    // ordered by modification time, so this is also the last text the user
+    // edited or started reading.
+    LaunchedEffect(Unit) {
+        val latest = withContext(Dispatchers.IO) { store.list().firstOrNull() }
+        if (latest != null) {
+            script = TextFieldValue(latest.text, TextRange(0))
+            scriptTitle = latest.title
+            currentScriptId = latest.id
+            edited = true
+        }
+        latestRestored = true
+    }
+
+    // Debounce typing so a long edit does not rewrite the file for every key.
+    // Starting the prompter also performs an immediate save below.
+    LaunchedEffect(script.text, scriptTitle, edited, latestRestored) {
+        if (!latestRestored || !edited || script.text.isBlank()) return@LaunchedEffect
+        delay(AUTOSAVE_DELAY_MS)
+        persistScript(showConfirmation = false)
     }
 
     // Reading the list is cheap, but it can go stale while the sheet is closed,
@@ -231,8 +307,13 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             StartBar(
-                enabled = text.isNotBlank() && !importing,
-                onStart = { onStart(text, language) },
+                enabled = text.isNotBlank() && !importing && languagePackReady,
+                onStart = {
+                    scope.launch {
+                        persistScript(showConfirmation = false)
+                        onStart(text, language)
+                    }
+                },
             )
         },
     ) { scaffoldPadding ->
@@ -259,8 +340,11 @@ fun HomeScreen(
                     FilledTonalButton(onClick = onChangeMode) {
                         Text(
                             stringResource(
-                                if (mode == PrompterMode.SELFIE) R.string.selfie_prompter
-                                else R.string.ext_prompter
+                                when (mode) {
+                                    PrompterMode.SELFIE -> R.string.selfie_prompter
+                                    PrompterMode.EXTERNAL -> R.string.ext_prompter
+                                    PrompterMode.REMOTE -> R.string.remote_camera
+                                }
                             )
                         )
                     }
@@ -285,7 +369,17 @@ fun HomeScreen(
                         readOnly = true,
                         label = { Text(stringResource(R.string.label_language)) },
                         supportingText = {
-                            Text(stringResource(R.string.voice_pack_size, language.approxMb))
+                            val status = languagePackStatus
+                            Text(
+                                when {
+                                    languagePackReady -> stringResource(R.string.model_ready)
+                                    status is ModelStatus.Downloading && status.fraction >= 0f ->
+                                        stringResource(R.string.model_download_percent, (status.fraction * 100).toInt())
+                                    status != null -> stringResource(R.string.model_preparing)
+                                    languagePackError != null -> languagePackError!!
+                                    else -> stringResource(R.string.voice_pack_size, language.approxMb)
+                                }
+                            )
                         },
                         trailingIcon = {
                             ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
@@ -324,6 +418,34 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                if (!languagePackReady && languagePackStatus != null) {
+                    val fraction = (languagePackStatus as? ModelStatus.Downloading)?.fraction ?: -1f
+                    if (fraction >= 0f) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { fraction.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+
+                OutlinedTextField(
+                    value = scriptTitle,
+                    onValueChange = {
+                        scriptTitle = it.replace("\n", " ").take(MAX_SCRIPT_TITLE_LENGTH)
+                        automaticTitle = null
+                        edited = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.script_name_optional)) },
+                    supportingText = {
+                        Text(stringResource(R.string.script_name_date_fallback))
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                )
 
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -415,6 +537,9 @@ fun HomeScreen(
                         FilledTonalButton(onClick = onOpenRecordings) {
                             Text(stringResource(R.string.recordings))
                         }
+                        OutlinedButton(onClick = onConfigureStorage) {
+                            Text(stringResource(R.string.storage_settings))
+                        }
                         OutlinedButton(onClick = onOpenLicenses) {
                             Text(stringResource(R.string.licenses))
                         }
@@ -436,6 +561,8 @@ fun HomeScreen(
                 scripts = savedScripts,
                 onOpen = { saved ->
                     replaceScript(saved.text)
+                    scriptTitle = saved.title
+                    automaticTitle = null
                     currentScriptId = saved.id
                     showLibrary = false
                 },
@@ -508,6 +635,7 @@ private fun ScriptLibrary(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
                 IconButton(onClick = { onDelete(saved) }) {
                     Icon(
                         Icons.Filled.DeleteOutline,

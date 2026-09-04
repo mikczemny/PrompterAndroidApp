@@ -1,7 +1,6 @@
 package com.mikczemny.prompter.ui
 
 import android.content.Intent
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -65,24 +64,15 @@ fun RecordingDestinationScreen(onConfigured: () -> Unit) {
         Spacer(Modifier.height(28.dp))
         Button(
             onClick = {
-                store.useCameraFolder()
+                store.useAppFolder()
                 onConfigured()
             },
-            enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
             modifier = Modifier.fillMaxWidth().height(64.dp),
             shape = RoundedCornerShape(18.dp),
         ) {
-            Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
+            Icon(Icons.Filled.Folder, contentDescription = null)
             Spacer(Modifier.padding(horizontal = 6.dp))
-            Text(stringResource(R.string.storage_camera_folder))
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            Text(
-                stringResource(R.string.storage_camera_folder_unavailable),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 6.dp),
-            )
+            Text(stringResource(R.string.storage_app_folder))
         }
         Spacer(Modifier.height(14.dp))
         FilledTonalButton(
@@ -97,6 +87,12 @@ fun RecordingDestinationScreen(onConfigured: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         Text(
             stringResource(R.string.storage_setup_privacy),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.storage_custom_folder_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
