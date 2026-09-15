@@ -15,7 +15,15 @@ data class MatchState(
  */
 class ScriptMatcher(scriptText: String) {
 
+    // Markdown and other formatted text can contain standalone structural
+    // markers such as "#", "-", ">" or "---". They are useful on screen, but
+    // normalizeWord() turns them into an empty string, so they can never be
+    // spoken or matched. Keeping them in the alignment stream adds artificial
+    // gaps and can make a correctly read Markdown script repeatedly fall into
+    // PAUSED. Preserve the original script for rendering, but exclude those
+    // non-speakable tokens from voice tracking.
     private val tokens: List<ScriptToken> = tokenizeScript(scriptText)
+        .filter { it.norm.isNotEmpty() }
 
     /** Raw display units, one per matchable token — render these so highlight
      *  indices returned in [MatchState.currentIndex] line up with what's shown. */
