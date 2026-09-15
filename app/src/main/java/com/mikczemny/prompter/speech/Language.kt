@@ -84,7 +84,11 @@ object Languages {
         FRENCH, GERMAN, ITALIAN, PORTUGUESE, RUSSIAN, HINDI, JAPANESE,
     )
 
-    val DEFAULT: Language = ENGLISH
+    // This app is primarily used with Polish scripts. Starting in English makes
+    // voice tracking appear broken after a cold launch: Polish speech is fed to
+    // the English Vosk model, no script progress is confirmed and the stage
+    // repeatedly falls into PAUSED. Users can still select any other language.
+    val DEFAULT: Language = POLISH
 
     fun byCode(code: String): Language = ALL.firstOrNull { it.code == code } ?: DEFAULT
 
