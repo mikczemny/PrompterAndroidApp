@@ -88,6 +88,7 @@ fun FloatingCameraWindow(
     controller: LifecycleCameraController,
     onBoundsChange: (CameraWindowBounds) -> Unit,
     onClose: () -> Unit,
+    controlsVisible: Boolean = true,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -135,7 +136,8 @@ fun FloatingCameraWindow(
                 },
             )
 
-            IconButton(
+            // Hide only the control, keeping the camera bound throughout the take.
+            if (controlsVisible) IconButton(
                 onClick = onClose,
                 modifier = Modifier
                     .align(Alignment.TopEnd)

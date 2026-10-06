@@ -12,9 +12,11 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.video.AudioConfig
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +39,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RestartAlt
@@ -68,11 +71,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -81,8 +87,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.annotation.StringRes
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -92,6 +100,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mikczemny.prompter.R
 import com.mikczemny.prompter.data.RecordingStore
 import com.mikczemny.prompter.match.ScriptMatcher
@@ -109,18 +120,11 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val PX_PER_SEC_MAX = 900f
 private const val SCROLL_LERP = 0.12f
-
-/**
- * Where in the viewport the line being spoken is held, as a fraction of height.
- * Near the top by default so the bulk of the panel shows what is coming next —
- * the speaker needs to read ahead, not to admire what they already said.
- * Adjustable, because the right spot depends on where the camera sits.
- */
-private const val DEFAULT_ANCHOR = 0.15f
 
 /** Half-height of the fully lit reading band, as a fraction of viewport height. */
 private const val BAND_HALF_HEIGHT = 0.11f
@@ -133,7 +137,7 @@ private const val DIM_ALPHA = 0.78f
 
 private const val COUNTDOWN_FROM = 3
 
-/** Height of the always-visible read-through progress bar at the top edge. */
+/** Height of the read-through progress bar when stage controls are visible. */
 private val PROGRESS_BAR_HEIGHT = 3.dp
 
 /** Where the big Start/Stop button sits within the bottom control bar. */
@@ -194,16 +198,25 @@ fun TeleprompterScreen(
     val matcher = remember(script) { ScriptMatcher(script) }
     val words = matcher.displayTokens
 
-    var fontSize by remember { mutableFloatStateOf(44f) }
-    var margin by remember { mutableFloatStateOf(8f) } // percent
-    var mirror by remember { mutableStateOf(false) }
-    var anchorFraction by remember { mutableFloatStateOf(DEFAULT_ANCHOR) }
-    var useCountdown by remember { mutableStateOf(true) }
-    var buttonPos by remember { mutableStateOf(ButtonPos.CENTER) }
+    val preferences = remember(context) { StagePreferences(context) }
+    var settings by remember(mode) { mutableStateOf(preferences.load(mode)) }
+    val fontSize = settings.fontSize
+    val margin = settings.marginPercent
+    val mirror = settings.mirror
+    val anchorFraction = settings.anchorFraction
+    val currentAnchorFraction by rememberUpdatedState(anchorFraction)
+    val useCountdown = settings.useCountdown
+    val buttonPos = ButtonPos.valueOf(settings.buttonPosition)
+    val brightness = settings.brightness
     var showSettings by remember { mutableStateOf(false) }
-    // Full brightness by default: the prompter is normally read at arm's length
-    // and often against daylight.
-    var brightness by remember { mutableFloatStateOf(1f) }
+    // Always enter with controls visible, even if the previous take was clean.
+    var controlsVisible by remember { mutableStateOf(true) }
+    val stageFocus = remember { FocusRequester() }
+
+    fun updateSettings(updated: ReadingSettings) {
+        settings = updated.sanitized(mode)
+        preferences.save(mode, settings)
+    }
 
     KeepScreenBright(brightness)
     ImmersiveStage()
@@ -211,6 +224,12 @@ fun TeleprompterScreen(
     var currentIndex by remember { mutableIntStateOf(-1) }
     var paused by remember { mutableStateOf(true) }
     var isListening by remember { mutableStateOf(false) }
+    // The user's intent includes countdown/model preparation, before the
+    // recognizer owns the mic. This also rejects late results after Stop.
+    var sessionRequested by remember { mutableStateOf(false) }
+    var sessionStopping by remember { mutableStateOf(false) }
+    var permissionPending by remember { mutableStateOf(false) }
+    var acceptResultsAfterMs by remember { mutableStateOf(0L) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var countdown by remember { mutableIntStateOf(0) }
     // Read progress through the script, 0..1, from MatchState.progress — drives
@@ -229,6 +248,7 @@ fun TeleprompterScreen(
     var recording by remember { mutableStateOf(false) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var pendingAudio by remember { mutableStateOf<File?>(null) }
+    var decidingRecording by remember { mutableStateOf(false) }
 
     // Selfie preview: a draggable camera window floating over the script, so the
     // speaker can frame themselves while reading. Off until enabled in settings.
@@ -260,7 +280,7 @@ fun TeleprompterScreen(
         // Unbinding CameraX while it is finalizing a recording corrupts the MP4.
         // Keep the session alive until Stop; the switch becomes effective again
         // as soon as the paired audio/video recording has finished.
-        if (!on && recording) return
+        if (!on && (recording || awaitingVideo || videoRecording != null)) return
         if (!on) {
             cameraEnabled = false
             cameraBounds = null
@@ -287,6 +307,12 @@ fun TeleprompterScreen(
     val wordOffsets = remember(words) { FloatArray(words.size) { Float.NaN } }
     var contentHeight by remember { mutableFloatStateOf(1f) }
     var viewportHeight by remember { mutableFloatStateOf(1f) }
+    var viewportWidth by remember { mutableFloatStateOf(1f) }
+    var viewportLeft by remember { mutableFloatStateOf(0f) }
+    var alignToPosition by remember { mutableStateOf(false) }
+    var manualScrolling by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val textTopPaddingPx = with(density) { 24.dp.toPx() }
 
     // The script is rendered exactly as written — line breaks, blank lines and
     // spacing intact — because how a speaker lays out their text is part of how
@@ -313,6 +339,9 @@ fun TeleprompterScreen(
             context = context,
             onResult = { text, isFinal, ts ->
                 mainHandler.post {
+                    if (!sessionRequested || manualScrolling || scrollState.isScrollInProgress || ts < acceptResultsAfterMs) {
+                        return@post
+                    }
                     val state = matcher.pushTranscript(text, isFinal, ts)
                     currentIndex = state.currentIndex
                     paused = state.paused
@@ -322,12 +351,28 @@ fun TeleprompterScreen(
                     velocity.floatValue = min(PX_PER_SEC_MAX, max(0f, targetPxPerSec))
                 }
             },
-            onError = { msg -> mainHandler.post { errorMsg = msg } },
-            onListeningChanged = { listening -> mainHandler.post { isListening = listening } },
-            onModelStatus = { status -> mainHandler.post { modelStatus = status } },
+            onError = { msg -> mainHandler.post { errorMsg = msg; controlsVisible = true } },
+            onListeningChanged = { listening ->
+                mainHandler.post {
+                    isListening = listening
+                    if (!listening) {
+                        sessionRequested = false
+                        sessionStopping = false
+                        paused = true
+                        velocity.floatValue = 0f
+                    }
+                }
+            },
+            onModelStatus = { status ->
+                mainHandler.post { if (sessionRequested || status == null) modelStatus = status }
+            },
             onInterrupted = {
                 mainHandler.post {
                     errorMsg = context.getString(R.string.recording_interrupted)
+                    sessionRequested = false
+                    paused = true
+                    velocity.floatValue = 0f
+                    controlsVisible = true
                 }
             },
         )
@@ -340,24 +385,48 @@ fun TeleprompterScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
+        permissionPending = false
+        if (granted && sessionRequested) {
             errorMsg = null
             if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
-        } else {
+        } else if (!granted) {
+            sessionRequested = false
             errorMsg = context.getString(R.string.mic_permission_denied)
+            controlsVisible = true
         }
     }
 
+    fun stopSession() {
+        sessionRequested = false
+        sessionStopping = recognizer.isActive
+        countdown = 0
+        paused = true
+        alignToPosition = false
+        modelStatus = null
+        velocity.floatValue = 0f
+        recognizer.stop()
+    }
+
     fun toggleListening() {
-        if (isListening || countdown > 0) {
-            countdown = 0
-            recognizer.stop()
+        if (sessionRequested || isListening || countdown > 0) {
+            stopSession()
             return
         }
+        // A remote can send another press before the old take has finalized.
+        // Keep that press from overwriting the files awaiting Save/Discard.
+        if (recognizer.isActive || sessionStopping || permissionPending || recording || recordingFile != null ||
+            pendingAudio != null || pendingVideo != null || awaitingVideo || decidingRecording
+        ) return
+        sessionRequested = true
+        matcher.jumpTo(currentIndex)
+        acceptResultsAfterMs = System.currentTimeMillis()
+        paused = true
+        velocity.floatValue = 0f
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
+            permissionPending = true
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
@@ -365,12 +434,30 @@ fun TeleprompterScreen(
         if (useCountdown) countdown = COUNTDOWN_FROM else recognizer.start(language)
     }
 
+    // Back always reveals a clean stage first, without ending the take.
+    BackHandler(enabled = !controlsVisible && !showSettings) { controlsVisible = true }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val stopOnBackground by rememberUpdatedState { stopSession() }
+    DisposableEffect(lifecycleOwner, recognizer) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                stopOnBackground()
+                controlsVisible = true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Recording follows tracking: it auto-starts once the mic is live, and when
     // tracking ends (Stop or an interruption, which finalizes the WAV inside the
     // recognizer) the finished file is parked for the keep/discard prompt.
     LaunchedEffect(isListening) {
-        if (isListening && !recording) {
-            val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+        if (isListening && !sessionRequested) {
+            recognizer.stop()
+        } else if (isListening && !recording) {
+            val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SSS", Locale.US).format(Date())
             val audioFile = recordingStore.newTempFile("prompter_$stamp.wav")
             recordingFile = audioFile
             recognizer.startRecording(audioFile)
@@ -388,6 +475,7 @@ fun TeleprompterScreen(
                         // The MP4 is only complete at Finalize; only then is it
                         // offered to the keep/discard prompt.
                         if (event is VideoRecordEvent.Finalize) {
+                            videoRecording = null
                             if (event.hasError()) videoFile.delete() else pendingVideo = videoFile
                             awaitingVideo = false
                         }
@@ -413,32 +501,80 @@ fun TeleprompterScreen(
     // The countdown gives the speaker a beat to draw breath and look up before
     // the microphone opens.
     LaunchedEffect(countdown) {
-        if (countdown <= 0) return@LaunchedEffect
+        if (countdown <= 0 || !sessionRequested) return@LaunchedEffect
         delay(1000)
         countdown -= 1
-        if (countdown == 0) recognizer.start(language)
+        if (countdown == 0 && sessionRequested) recognizer.start(language)
     }
 
     /** Sends the pointer to [index] (-1 = back to the top) and parks tracking there. */
-    fun moveTo(index: Int) {
-        matcher.jumpTo(index)
-        currentIndex = index
+    fun moveTo(index: Int, align: Boolean = true) {
+        val target = index.coerceIn(-1, words.lastIndex)
+        acceptResultsAfterMs = System.currentTimeMillis() + 1
+        recognizer.resetTranscript()
+        matcher.jumpTo(target)
+        currentIndex = target
         paused = true
+        alignToPosition = align
         velocity.floatValue = 0f
-        progress = if (words.isEmpty()) 0f else (index + 1).toFloat() / words.size
+        progress = if (words.isEmpty()) 0f else (target + 1).toFloat() / words.size
+    }
+
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress) {
+            manualScrolling = true
+            alignToPosition = false
+            paused = true
+            velocity.floatValue = 0f
+        } else if (manualScrolling) {
+            manualScrolling = false
+            // A drag chooses a new reading position. Remember it before the
+            // voice loop resumes, otherwise it would pull the text back.
+            val readingY = scrollState.value + viewportHeight * currentAnchorFraction
+            moveTo(tokenAtReadingLine(wordOffsets, readingY), align = false)
+        }
+    }
+
+    fun performRemoteAction(action: RemoteAction) {
+        when (action) {
+            RemoteAction.TOGGLE -> toggleListening()
+            RemoteAction.PREVIOUS_LINE -> moveTo(lineJumpTarget(wordOffsets, currentIndex, -1))
+            RemoteAction.NEXT_LINE -> moveTo(lineJumpTarget(wordOffsets, currentIndex, 1))
+            RemoteAction.PREVIOUS_PAGE -> moveTo(pageJumpTarget(wordOffsets, currentIndex, -1, viewportHeight))
+            RemoteAction.NEXT_PAGE -> moveTo(pageJumpTarget(wordOffsets, currentIndex, 1, viewportHeight))
+            RemoteAction.RESTART -> moveTo(-1)
+            RemoteAction.TOGGLE_CONTROLS -> controlsVisible = !controlsVisible
+        }
+    }
+
+    val stageInputBlocked = showSettings || permissionPending || pendingAudio != null ||
+        awaitingVideo || decidingRecording
+    LaunchedEffect(stageInputBlocked, controlsVisible) {
+        if (!stageInputBlocked) stageFocus.requestFocus()
     }
 
     // Smooth scroll loop: blends velocity-based motion with position correction
     // toward the actually tracked word so drift self-heals.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(matcher, textTopPaddingPx) {
         var lastTs = 0L
+        var lastPauseCheck = 0L
         while (true) {
             withFrameNanos { ts ->
                 val dt = if (lastTs == 0L) 0f else min(0.05f, (ts - lastTs) / 1_000_000_000f)
                 lastTs = ts
 
+                // Empty/unchanged recognition results are not emitted during
+                // silence. Refresh the pause clock independently of speech.
+                if (sessionRequested && isListening && ts - lastPauseCheck >= 100_000_000L) {
+                    val state = matcher.getState()
+                    paused = state.paused
+                    if (paused) velocity.floatValue = 0f
+                    lastPauseCheck = ts
+                }
+
                 val started = currentIndex >= 0 && currentIndex < wordOffsets.size
-                val velocityStep = if (paused || !started) 0f else velocity.floatValue * dt
+                val canTrack = sessionRequested && isListening && !manualScrolling
+                val velocityStep = if (paused || !started || !canTrack) 0f else velocity.floatValue * dt
 
                 // Before the first match — and after a reset — the anchor is the
                 // top of the script rather than a tracked word. A token that has
@@ -446,14 +582,17 @@ fun TeleprompterScreen(
                 // velocity term applies until layout catches up.
                 val anchorTop = if (started) wordOffsets[currentIndex] else 0f
                 var correction = 0f
-                if (!anchorTop.isNaN()) {
+                if (!anchorTop.isNaN() && (canTrack || alignToPosition) && !scrollState.isScrollInProgress) {
                     val targetScroll =
-                        if (started) anchorTop - viewportHeight * anchorFraction else 0f
+                        if (started) anchorTop - viewportHeight * currentAnchorFraction else 0f
                     correction = (targetScroll - scrollState.value) * SCROLL_LERP
+                    if (abs(targetScroll.coerceIn(0f, scrollState.maxValue.toFloat()) - scrollState.value) < 1f) {
+                        alignToPosition = false
+                    }
                 }
                 val next = (scrollState.value + velocityStep + correction)
                     .coerceIn(0f, scrollState.maxValue.toFloat())
-                scrollState.dispatchRawDelta(next - scrollState.value)
+                if (!scrollState.isScrollInProgress) scrollState.dispatchRawDelta(next - scrollState.value)
 
                 // Tell the matcher which words are actually on screen, so a
                 // match further down the script can't win while it's still
@@ -473,20 +612,31 @@ fun TeleprompterScreen(
     }
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (stageInputBlocked) {
+                    false
+                } else {
+                    val result = handleRemoteKey(event.nativeKeyEvent, settings.remoteEnabled, settings.volumeKeysEnabled)
+                    result.action?.let(::performRemoteAction)
+                    result.handled
+                }
+            }
+            .focusRequester(stageFocus)
+            .focusable(),
         color = StageColors.Background,
         contentColor = StageColors.Foreground,
     ) {
-        val density = LocalDensity.current
         val camera = cameraBounds.takeIf { cameraEnabled }
         val cameraGapPx = with(density) { 12.dp.toPx() }
-        val visualStartPx = if (camera != null && camera.centerX <= camera.containerWidth / 2f) {
-            camera.right + cameraGapPx
+        val visualStartPx = if (camera != null && camera.centerX <= viewportLeft + viewportWidth / 2f) {
+            (camera.right + cameraGapPx - viewportLeft).coerceAtLeast(0f)
         } else {
             0f
         }
-        val visualEndPx = if (camera != null && camera.centerX > camera.containerWidth / 2f) {
-            camera.containerWidth - camera.left + cameraGapPx
+        val visualEndPx = if (camera != null && camera.centerX > viewportLeft + viewportWidth / 2f) {
+            (viewportLeft + viewportWidth - camera.left + cameraGapPx).coerceAtLeast(0f)
         } else {
             0f
         }
@@ -494,8 +644,12 @@ fun TeleprompterScreen(
         // logical padding has to be swapped to preserve the visual exclusion.
         val logicalStartPx = if (mirror) visualEndPx else visualStartPx
         val logicalEndPx = if (mirror) visualStartPx else visualEndPx
-        val textStartPadding = with(density) { maxOf(margin.dp.toPx(), logicalStartPx).toDp() }
-        val textEndPadding = with(density) { maxOf(margin.dp.toPx(), logicalEndPx).toDp() }
+        val minimumTextWidth = with(density) {
+            maxOf(120.dp.toPx(), fontSize.sp.toPx() * 2.5f).coerceAtMost(viewportWidth * 0.65f)
+        }
+        val insets = readingInsets(viewportWidth, margin, logicalStartPx, logicalEndPx, minimumTextWidth)
+        val textStartPadding = with(density) { insets.start.toDp() }
+        val textEndPadding = with(density) { insets.end.toDp() }
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -505,7 +659,11 @@ fun TeleprompterScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .onGloballyPositioned { viewportHeight = it.size.height.toFloat() },
+                        .onGloballyPositioned {
+                            viewportHeight = it.size.height.toFloat()
+                            viewportWidth = it.size.width.toFloat()
+                            viewportLeft = it.positionInRoot().x
+                        },
                 ) {
                     Box(
                         modifier = Modifier
@@ -516,7 +674,9 @@ fun TeleprompterScreen(
                                 start = textStartPadding,
                                 end = textEndPadding,
                                 top = 24.dp,
-                                bottom = 400.dp,
+                                // The last line must reach the reading band on
+                                // a tall tablet just as it does on a phone.
+                                bottom = with(density) { (viewportHeight * (1f - anchorFraction)).toDp() },
                             ),
                     ) {
                         Text(
@@ -524,7 +684,7 @@ fun TeleprompterScreen(
                             color = StageColors.Foreground,
                             style = TextStyle(
                                 fontSize = fontSize.sp,
-                                lineHeight = (fontSize * 1.35f).sp,
+                                lineHeight = (fontSize * settings.lineSpacing).sp,
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -571,12 +731,15 @@ fun TeleprompterScreen(
                                 }
                                 // Tap any word to read from there — the fast way to
                                 // recover a lost position, or to line up a retake.
-                                .pointerInput(words) {
-                                    detectTapGestures { pos ->
-                                        val layout = textLayout ?: return@detectTapGestures
-                                        val offset = layout.getOffsetForPosition(pos)
-                                        moveTo(tokenIndexForOffset(tokenCharStarts, offset))
-                                    }
+                                .pointerInput(words, controlsVisible) {
+                                    detectTapGestures(
+                                        onDoubleTap = { controlsVisible = !controlsVisible },
+                                        onTap = { pos ->
+                                            val layout = textLayout ?: return@detectTapGestures
+                                            val offset = layout.getOffsetForPosition(pos)
+                                            moveTo(tokenIndexForOffset(tokenCharStarts, offset))
+                                        },
+                                    )
                                 },
                             onTextLayout = { layout ->
                                 textLayout = layout
@@ -585,47 +748,59 @@ fun TeleprompterScreen(
                                     val offset = tokenCharStarts[i]
                                     if (offset < length) {
                                         val line = layout.getLineForOffset(offset)
-                                        wordOffsets[i] = layout.getLineTop(line)
+                                        wordOffsets[i] = textTopPaddingPx + layout.getLineTop(line)
                                     }
                                 }
+                                // A slider can trigger a frame before reflow is
+                                // complete. Align again using the new geometry.
+                                if (currentIndex >= 0 && !manualScrolling) alignToPosition = true
                             },
                         )
                     }
 
-                    FocusBand(anchor = anchorFraction)
+                    if (settings.focusBandEnabled) FocusBand(anchor = anchorFraction)
                 }
 
                 // ---- Bottom controls ----
-                Column(modifier = Modifier.fillMaxWidth().background(StageColors.Background)) {
-                    if (errorMsg != null) {
-                        Text(
-                            errorMsg!!,
-                            color = Color(0xFFFF6B6B),
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                if (controlsVisible) {
+                    Column(modifier = Modifier.fillMaxWidth().background(StageColors.Background)) {
+                        if (errorMsg != null) {
+                            Text(
+                                errorMsg!!,
+                                color = Color(0xFFFF6B6B),
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+
+                        ControlBar(
+                            isListening = sessionRequested || isListening,
+                            counting = countdown > 0,
+                            canToggle = !sessionStopping && !stageInputBlocked,
+                            buttonPos = buttonPos,
+                            statusText = stringResource(
+                                R.string.status_line,
+                                stringResource(
+                                    when {
+                                        sessionStopping -> R.string.status_stopping
+                                        sessionRequested && !isListening -> R.string.status_preparing
+                                        paused -> R.string.status_paused
+                                        else -> R.string.status_tracking
+                                    }
+                                ),
+                                currentIndex + 1,
+                                words.size,
+                            ),
+                            onBack = onBack,
+                            onToggle = { toggleListening() },
+                            cameraEnabled = cameraEnabled,
+                            onToggleCamera = { toggleCamera(!cameraEnabled) },
+                            onRestart = { moveTo(-1) },
+                            onToggleSettings = { showSettings = true },
+                            onHideControls = { controlsVisible = false },
+                            recording = recording,
                         )
                     }
-
-                    ControlBar(
-                        isListening = isListening,
-                        counting = countdown > 0,
-                        buttonPos = buttonPos,
-                        statusText = stringResource(
-                            R.string.status_line,
-                            stringResource(
-                                if (paused) R.string.status_paused else R.string.status_tracking
-                            ),
-                            currentIndex + 1,
-                            words.size,
-                        ),
-                        onBack = onBack,
-                        onToggle = { toggleListening() },
-                        cameraEnabled = cameraEnabled,
-                        onToggleCamera = { toggleCamera(!cameraEnabled) },
-                        onRestart = { moveTo(-1) },
-                        onToggleSettings = { showSettings = true },
-                        recording = recording,
-                    )
                 }
             }
 
@@ -637,10 +812,11 @@ fun TeleprompterScreen(
                 ModelStatusOverlay(language = language, status = status)
             }
 
-            // Thin, always-on read-through indicator pinned to the top edge —
-            // drawn last so it stays visible over the countdown and model
-            // status overlays too, not just the reading stage.
-            ReadingProgressBar(progress = progress, modifier = Modifier.align(Alignment.TopCenter))
+            // The clean stage hides chrome only; its reading and recording
+            // state continue unchanged.
+            if (controlsVisible) {
+                ReadingProgressBar(progress = progress, modifier = Modifier.align(Alignment.TopCenter))
+            }
 
             // Drawn last so the selfie window floats above script and overlays.
             if (cameraEnabled) {
@@ -648,6 +824,7 @@ fun TeleprompterScreen(
                     controller = cameraController,
                     onBoundsChange = { cameraBounds = it },
                     onClose = { toggleCamera(false) },
+                    controlsVisible = controlsVisible,
                 )
             }
         }
@@ -668,13 +845,22 @@ fun TeleprompterScreen(
                 mirror = mirror,
                 useCountdown = useCountdown,
                 buttonPos = buttonPos,
-                onFontSize = { fontSize = it },
-                onMargin = { margin = it },
-                onBrightness = { brightness = it },
-                onAnchorFraction = { anchorFraction = it },
-                onMirror = { mirror = it },
-                onCountdown = { useCountdown = it },
-                onButtonPos = { buttonPos = it },
+                lineSpacing = settings.lineSpacing,
+                focusBandEnabled = settings.focusBandEnabled,
+                remoteEnabled = settings.remoteEnabled,
+                volumeKeysEnabled = settings.volumeKeysEnabled,
+                onFontSize = { updateSettings(settings.copy(fontSize = it)); alignToPosition = true },
+                onMargin = { updateSettings(settings.copy(marginPercent = it)); alignToPosition = true },
+                onBrightness = { updateSettings(settings.copy(brightness = it)) },
+                onAnchorFraction = { updateSettings(settings.copy(anchorFraction = it)); alignToPosition = true },
+                onMirror = { updateSettings(settings.copy(mirror = it)) },
+                onCountdown = { updateSettings(settings.copy(useCountdown = it)) },
+                onButtonPos = { updateSettings(settings.copy(buttonPosition = it.name)) },
+                onLineSpacing = { updateSettings(settings.copy(lineSpacing = it)); alignToPosition = true },
+                onFocusBand = { updateSettings(settings.copy(focusBandEnabled = it)) },
+                onRemoteEnabled = { updateSettings(settings.copy(remoteEnabled = it)) },
+                onVolumeKeys = { updateSettings(settings.copy(volumeKeysEnabled = it)) },
+                onResetSettings = { updateSettings(ReadingSettings.defaults(mode)); alignToPosition = true },
             )
         }
     }
@@ -700,27 +886,41 @@ fun TeleprompterScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    if (decidingRecording) return@TextButton
+                    decidingRecording = true
                     pendingAudio = null
                     pendingVideo = null
                     scope.launch {
-                        val savedAudio = withContext(Dispatchers.IO) { recordingStore.save(audioToDecide) }
-                        val savedVideo = video?.let { withContext(Dispatchers.IO) { recordingStore.save(it) } }
-                        val msg = if (savedVideo != null) {
-                            context.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
-                        } else {
-                            context.getString(R.string.audio_saved, savedAudio.name)
+                        try {
+                            val savedAudio = withContext(Dispatchers.IO) { recordingStore.save(audioToDecide) }
+                            val savedVideo = video?.let { withContext(Dispatchers.IO) { recordingStore.save(it) } }
+                            val msg = if (savedVideo != null) {
+                                context.getString(R.string.recording_saved_av, savedAudio.name, savedVideo.name)
+                            } else {
+                                context.getString(R.string.audio_saved, savedAudio.name)
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        } finally {
+                            decidingRecording = false
                         }
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     }
                 }) { Text(stringResource(R.string.save)) }
             },
             dismissButton = {
                 TextButton(onClick = {
+                    if (decidingRecording) return@TextButton
+                    decidingRecording = true
                     pendingAudio = null
                     pendingVideo = null
-                    scope.launch(Dispatchers.IO) {
-                        recordingStore.discard(audioToDecide)
-                        video?.let { recordingStore.discard(it) }
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                recordingStore.discard(audioToDecide)
+                                video?.let { recordingStore.discard(it) }
+                            }
+                        } finally {
+                            decidingRecording = false
+                        }
                     }
                 }) { Text(stringResource(R.string.discard)) }
             },
@@ -821,6 +1021,7 @@ private fun CountdownOverlay(value: Int) {
 private fun ControlBar(
     isListening: Boolean,
     counting: Boolean,
+    canToggle: Boolean,
     buttonPos: ButtonPos,
     statusText: String,
     onBack: () -> Unit,
@@ -829,6 +1030,7 @@ private fun ControlBar(
     onToggleCamera: () -> Unit,
     onRestart: () -> Unit,
     onToggleSettings: () -> Unit,
+    onHideControls: () -> Unit,
     recording: Boolean,
 ) {
     val bigButtonAlignment = when (buttonPos) {
@@ -871,6 +1073,7 @@ private fun ControlBar(
                     }
                     Button(
                         onClick = onToggle,
+                        enabled = canToggle,
                         modifier = Modifier.height(60.dp).widthIn(min = 150.dp),
                         shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -919,7 +1122,19 @@ private fun ControlBar(
                 )
                 Spacer(Modifier.width(6.dp))
             }
-            Text(text = statusText, fontSize = 12.sp, color = StageColors.Muted)
+            Text(
+                text = statusText,
+                fontSize = 12.sp,
+                color = StageColors.Muted,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onHideControls, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    Icons.Filled.Fullscreen,
+                    contentDescription = stringResource(R.string.hide_controls),
+                    tint = StageColors.Foreground,
+                )
+            }
         }
     }
 }
@@ -945,6 +1160,10 @@ private fun SettingsPanel(
     mirror: Boolean,
     useCountdown: Boolean,
     buttonPos: ButtonPos,
+    lineSpacing: Float,
+    focusBandEnabled: Boolean,
+    remoteEnabled: Boolean,
+    volumeKeysEnabled: Boolean,
     onFontSize: (Float) -> Unit,
     onMargin: (Float) -> Unit,
     onBrightness: (Float) -> Unit,
@@ -952,10 +1171,16 @@ private fun SettingsPanel(
     onMirror: (Boolean) -> Unit,
     onCountdown: (Boolean) -> Unit,
     onButtonPos: (ButtonPos) -> Unit,
+    onLineSpacing: (Float) -> Unit,
+    onFocusBand: (Boolean) -> Unit,
+    onRemoteEnabled: (Boolean) -> Unit,
+    onVolumeKeys: (Boolean) -> Unit,
+    onResetSettings: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
             .padding(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -978,9 +1203,21 @@ private fun SettingsPanel(
         SettingSlider(
             label = stringResource(R.string.setting_margin),
             value = margin,
-            range = 0f..30f,
-            readout = stringResource(R.string.readout_dp, margin.roundToInt()),
+            range = 0f..40f,
+            readout = stringResource(R.string.readout_percent, margin.roundToInt()),
             onValueChange = onMargin,
+        )
+        Text(
+            stringResource(R.string.setting_margin_caption),
+            fontSize = 12.sp,
+            color = StageColors.Muted,
+        )
+        SettingSlider(
+            label = stringResource(R.string.setting_line_spacing),
+            value = lineSpacing,
+            range = 1f..2f,
+            readout = stringResource(R.string.readout_line_spacing, lineSpacing),
+            onValueChange = onLineSpacing,
         )
         SettingSlider(
             label = stringResource(R.string.setting_screen),
@@ -997,6 +1234,12 @@ private fun SettingsPanel(
             onValueChange = onAnchorFraction,
         )
 
+        SettingSwitch(
+            stringResource(R.string.setting_focus_band),
+            stringResource(R.string.setting_focus_band_caption),
+            focusBandEnabled,
+            onFocusBand,
+        )
         SettingSwitch(
             stringResource(R.string.setting_mirror),
             stringResource(R.string.setting_mirror_caption),
@@ -1035,6 +1278,40 @@ private fun SettingsPanel(
                     }
                 }
             }
+        }
+        SettingSwitch(
+            stringResource(R.string.setting_remote),
+            stringResource(R.string.setting_remote_caption),
+            remoteEnabled,
+            onRemoteEnabled,
+        )
+        if (remoteEnabled) {
+            SettingSwitch(
+                stringResource(R.string.setting_volume_keys),
+                stringResource(R.string.setting_volume_keys_caption),
+                volumeKeysEnabled,
+                onVolumeKeys,
+            )
+            Text(
+                stringResource(R.string.remote_shortcuts),
+                fontSize = 13.sp,
+                color = StageColors.Muted,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+        Text(
+            stringResource(R.string.clean_screen_hint),
+            fontSize = 13.sp,
+            color = StageColors.Muted,
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+        Text(
+            stringResource(R.string.settings_saved_caption),
+            fontSize = 12.sp,
+            color = StageColors.Muted,
+        )
+        TextButton(onClick = onResetSettings) {
+            Text(stringResource(R.string.reset_reading_settings), color = StageColors.Live)
         }
     }
 }

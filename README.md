@@ -42,6 +42,29 @@ Built to be commercialized as a simple paid app across multiple markets
   re-measuring the text.
 - `ui/ScreenAwake.kt` — holds the screen on, pins its brightness, and hides the
   system bars while prompting.
+- `ui/RemoteControl.kt` — stage shortcuts for Android keyboard/HID remotes and
+  pedals, including line/page navigation and optional volume-button mapping.
+- `ui/StagePreferences.kt` — persistent, separate reading setups for selfie and
+  external-camera use. Margins scale with the viewport and line spacing is
+  adjustable. The reading band is optional and starts off in selfie mode.
+
+## Reading setup and hands-free controls
+
+Open Settings on the reading stage to adjust font, margins, line spacing,
+reading position, brightness, mirror and countdown. Settings are saved for the
+selected mode; returning to a script restores them. The reset button resets
+only that mode's reading settings.
+
+Pair a keyboard, presenter or pedal in Android (or connect a USB keyboard).
+On the stage, Space/Enter/Play-Pause starts or stops a take, arrows move a line,
+Page Up/Down moves a page, Home restarts the script and H hides/shows controls.
+Stop finishes the recording and opens Save/Discard. Volume-button navigation
+is opt-in. Shortcuts do not control the settings or recording decision dialogs.
+
+The fullscreen button or a double-tap on the text hides controls. Double-tap
+again, press H, or use Android Back to reveal them. Hiding controls does not
+unbind the camera. See [Reading controls](docs/READING-CONTROLS.md) for mappings,
+layout behavior and device verification.
 
 ## Languages & models
 
