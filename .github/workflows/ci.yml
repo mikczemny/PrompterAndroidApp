@@ -34,6 +34,16 @@ jobs:
       - name: Build and test
         run: ./gradlew assembleDebug testDebugUnitTest --stacktrace
 
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: warn
+
       # Hand back the built APK so either machine can grab a fresh build without
       # compiling locally.
       - name: Upload debug APK

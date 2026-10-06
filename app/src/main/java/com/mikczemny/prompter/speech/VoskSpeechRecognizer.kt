@@ -42,26 +42,15 @@ class VoskSpeechRecognizer(
 ) {
     private val audioFocus = AudioFocusManager(context)
 
-    @Volatile
-    private var recognizer: Recognizer? = null
+    private val sessions = CaptureSessionGate()
 
-    @Volatile
+    // Published and read under sessions, including while stopping. Native
+    // recognizers stay local to their capture thread and never cross to the UI.
     private var audioRecord: AudioRecord? = null
-
-    @Volatile
     private var captureThread: Thread? = null
 
-    // Signals the capture loop to finish; the loop's finally block owns all
-    // resource release, so stop() and interruptions never double-close.
-    @Volatile
-    private var running: Boolean = false
-
+    // Only the capture thread may touch Vosk's utterance or its partial cache.
     private var lastPartial: String = ""
-
-    // Guards the start/stop critical section so a Stop tap can never land in the
-    // gap between "decided to start" and "mic actually capturing" and leave the
-    // mic open with the UI showing idle. (Carried over from the P0-1 fix.)
-    private val lifecycleLock = Any()
 
     // Serializes WAV writes (capture thread) against finalize (stopRecording).
     private val recordingLock = Any()
@@ -69,12 +58,12 @@ class VoskSpeechRecognizer(
     @Volatile
     private var wavRecorder: WavRecorder? = null
 
-    @Volatile
-    private var cancelRequested: Boolean = false
+    val isListening: Boolean
+        get() = sessions.isListening
 
-    @Volatile
-    var isListening: Boolean = false
-        private set
+    /** True from an accepted start through preparation, capture and final cleanup. */
+    val isActive: Boolean
+        get() = sessions.isActive
 
     /** True while the microphone stream is also being written to a file. */
     val isRecording: Boolean
@@ -85,109 +74,141 @@ class VoskSpeechRecognizer(
      * on first use (reporting progress); subsequent starts are instant/offline.
      */
     fun start(language: Language) {
-        if (isListening) return
-        cancelRequested = false
-        val thread = Thread { captureSession(language) }
-        thread.start()
+        synchronized(sessions) {
+            val session = sessions.begin() ?: return
+            try {
+                val thread = Thread({ captureSession(session, language) }, "prompter-capture")
+                captureThread = thread
+                thread.start()
+            } catch (t: Throwable) {
+                // Thread creation can fail before captureSession owns cleanup.
+                captureThread = null
+                sessions.finish(session)
+                onError(t.message ?: "Could not start recognition")
+                onModelStatus(null)
+                onListeningChanged(false)
+            }
+        }
     }
 
     // Callers gate on RECORD_AUDIO at runtime (mic-permission flow in the UI)
     // before ever reaching start(); lint can't see across that hop.
     @SuppressLint("MissingPermission")
-    private fun captureSession(language: Language) {
+    private fun captureSession(session: CaptureSessionGate.Session, language: Language) {
         var rec: Recognizer? = null
         var record: AudioRecord? = null
         try {
+            if (!sessions.mayContinue(session)) return
             val model = VoskModelManager.ensureModel(context, language) { status ->
-                onModelStatus(status)
+                synchronized(sessions) {
+                    if (sessions.mayContinue(session)) onModelStatus(status)
+                }
             }
-            onModelStatus(null)
+            if (!sessions.mayContinue(session)) return
 
-            rec = Recognizer(model, PcmResampler.TARGET_RATE.toFloat())
-            record = openAudioRecord()
-            val rate = record.sampleRate
+            val nativeRecognizer = Recognizer(model, PcmResampler.TARGET_RATE.toFloat())
+            rec = nativeRecognizer
+            val microphone = openAudioRecord()
+            record = microphone
+            val rate = microphone.sampleRate
 
             // Check-publish-start atomically under the same lock stop() uses, so
             // a Stop tap either sees the session fully live and ends it, or lands
             // first and this thread aborts before the mic ever opens.
-            val started = synchronized(lifecycleLock) {
-                if (cancelRequested) {
-                    false
-                } else {
-                    recognizer = rec
-                    audioRecord = record
-                    captureThread = Thread.currentThread()
-                    record.startRecording()
-                    running = true
-                    isListening = true
-                    true
+            val started = synchronized(sessions) {
+                val live = sessions.startListening(session) {
+                    audioRecord = microphone
+                    microphone.startRecording()
+                }
+                if (live) {
+                    // Bind focus loss to this token; a queued callback from an
+                    // abandoned request must not interrupt a later start.
+                    audioFocus.request { handleInterruption(session) }
+                    onModelStatus(null)
+                    if (sessions.isListening(session)) onListeningChanged(true)
+                }
+                live
+            }
+            if (!started) return
+
+            captureLoop(session, nativeRecognizer, microphone, rate)
+        } catch (t: Throwable) {
+            synchronized(sessions) {
+                // An interrupted preparation/read is an expected result of
+                // Stop, not a new failure to show after the user has cancelled.
+                if (sessions.mayContinue(session)) {
+                    onError(t.message ?: "Could not start recognition")
                 }
             }
-            if (!started) {
-                record.release()
-                rec.close()
-                onListeningChanged(false)
-                return
-            }
-
-            // Hold audio focus for its loss callback: if anything else grabs the
-            // audio path, tear down so the mic is released and the UI stops
-            // claiming it is tracking.
-            audioFocus.request { handleInterruption() }
-            onListeningChanged(true)
-
-            captureLoop(rec, record, rate)
-        } catch (t: Throwable) {
-            onModelStatus(null)
-            onError(t.message ?: "Could not start recognition")
         } finally {
+            // A capture failure also closes admission to startRecording before
+            // cleanup drops its WAV lock; no delayed UI callback may open a new
+            // writer against a microphone that is being released.
+            sessions.requestStop(session)
             // The loop's owner releases everything, exactly once.
-            audioFocus.abandon()
+            runCatching { audioFocus.abandon() }
             synchronized(recordingLock) {
                 wavRecorder?.runCatching { close() }
                 wavRecorder = null
             }
-            record?.runCatching {
-                if (state == AudioRecord.STATE_INITIALIZED) stop()
-                release()
+            record?.let { captured ->
+                runCatching {
+                    if (captured.recordingState == AudioRecord.RECORDSTATE_RECORDING) captured.stop()
+                }
+                // A failed stop must not skip releasing the native recorder.
+                runCatching { captured.release() }
             }
             rec?.runCatching { close() }
-            synchronized(lifecycleLock) {
+            lastPartial = ""
+            synchronized(sessions) {
                 if (captureThread === Thread.currentThread()) {
                     audioRecord = null
-                    recognizer = null
                     captureThread = null
-                    running = false
-                    isListening = false
                 }
+                sessions.finish(session)
+                // Publish idle only after cleanup. Keep it ordered with begin:
+                // a later session must never receive this session's idle event.
+                onModelStatus(null)
+                onListeningChanged(false)
             }
-            lastPartial = ""
-            onModelStatus(null)
-            onListeningChanged(false)
         }
     }
 
-    private fun captureLoop(rec: Recognizer, record: AudioRecord, rate: Int) {
+    private fun captureLoop(
+        session: CaptureSessionGate.Session,
+        rec: Recognizer,
+        record: AudioRecord,
+        rate: Int,
+    ) {
         // ~100 ms blocks: small enough that stop() is felt promptly, large
         // enough to keep per-read overhead negligible.
         val block = ShortArray(rate / 10)
-        while (running) {
+        while (sessions.mayContinue(session)) {
             val n = record.read(block, 0, block.size)
             if (n <= 0) continue
+            if (!sessions.mayContinue(session)) break
 
             // Tee the raw, full-rate capture to the file first.
             synchronized(recordingLock) { wavRecorder?.write(block, n) }
 
+            if (sessions.consumeReset(session)) {
+                rec.reset()
+                lastPartial = ""
+                // This block may straddle a remote jump. Keep it in the WAV,
+                // but do not let speech from before the jump move the pointer.
+                continue
+            }
+
             // Then feed a 16 kHz copy to recognition.
             val forVosk = PcmResampler.toVoskRate(block, n, rate)
             if (rec.acceptWaveForm(forVosk, forVosk.size)) {
-                emit(rec.result, isFinal = true)
+                emit(session, rec.result, isFinal = true)
             } else {
-                emit(rec.partialResult, isFinal = false)
+                emit(session, rec.partialResult, isFinal = false)
             }
         }
-        // Flush whatever the recognizer was still holding when listening ended.
-        emit(rec.finalResult, isFinal = true)
+        // Stop ends tracking immediately; flushing the old utterance here
+        // could move the pointer after a Stop or a remote navigation action.
     }
 
     /**
@@ -224,11 +245,13 @@ class VoskSpeechRecognizer(
      * [stopRecording] to finalize the file.
      */
     fun startRecording(file: File) {
-        val record = audioRecord ?: return
-        if (!isListening) return
-        synchronized(recordingLock) {
-            if (wavRecorder != null) return
-            wavRecorder = WavRecorder(file, record.sampleRate)
+        synchronized(sessions) {
+            val record = audioRecord ?: return
+            if (!sessions.isListening) return
+            synchronized(recordingLock) {
+                if (wavRecorder != null) return
+                wavRecorder = WavRecorder(file, record.sampleRate)
+            }
         }
     }
 
@@ -241,13 +264,23 @@ class VoskSpeechRecognizer(
     }
 
     fun stop() {
-        cancelRequested = true
-        running = false
-        stopRecording()
-        // read() fills one ~100 ms block then returns, so the loop sees
-        // running == false and exits within a block; the interrupt is just a
-        // nudge for any interruptible wait on the way out.
-        captureThread?.interrupt()
+        synchronized(sessions) {
+            if (sessions.requestStop() == null) return
+            stopRecording()
+            // read() normally returns within a ~100 ms block. Interrupt preparation
+            // when possible; a non-interruptible model load still cannot start
+            // the microphone after this session's stop has been accepted.
+            captureThread?.interrupt()
+        }
+    }
+
+    /**
+     * Discards the current utterance after a manual jump without stopping the
+     * microphone or WAV capture. Native reset happens only on the capture
+     * thread at the next audio block; in-flight results are suppressed now.
+     */
+    fun resetTranscript() {
+        sessions.requestReset()
     }
 
     /**
@@ -255,22 +288,32 @@ class VoskSpeechRecognizer(
      * (releasing the mic) and reports the interruption, but only once per live
      * session, since focus loss can fire more than once.
      */
-    private fun handleInterruption() {
-        if (!isListening) return
-        stop()
-        onInterrupted()
+    private fun handleInterruption(session: CaptureSessionGate.Session) {
+        val interrupted = synchronized(sessions) {
+            if (!sessions.isListening(session) || !sessions.requestStop(session)) {
+                false
+            } else {
+                stopRecording()
+                captureThread?.interrupt()
+                true
+            }
+        }
+        if (interrupted) onInterrupted()
     }
 
-    private fun emit(json: String, isFinal: Boolean) {
-        if (isFinal) {
-            val text = extractField(json, "text")
-            lastPartial = ""
-            if (text.isNotBlank()) onResult(text, true, System.currentTimeMillis())
-        } else {
-            val partial = extractField(json, "partial")
-            if (partial.isNotBlank() && partial != lastPartial) {
-                lastPartial = partial
-                onResult(partial, false, System.currentTimeMillis())
+    private fun emit(session: CaptureSessionGate.Session, json: String, isFinal: Boolean) {
+        synchronized(sessions) {
+            if (!sessions.mayEmit(session)) return
+            if (isFinal) {
+                val text = extractField(json, "text")
+                lastPartial = ""
+                if (text.isNotBlank()) onResult(text, true, System.currentTimeMillis())
+            } else {
+                val partial = extractField(json, "partial")
+                if (partial.isNotBlank() && partial != lastPartial) {
+                    lastPartial = partial
+                    onResult(partial, false, System.currentTimeMillis())
+                }
             }
         }
     }

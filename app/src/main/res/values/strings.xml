@@ -83,11 +83,27 @@
     <string name="delete_recording">Delete %s</string>
     <string name="status_paused">Paused</string>
     <string name="status_tracking">Tracking</string>
+    <string name="status_preparing">Preparing</string>
+    <string name="status_stopping">Stopping</string>
     <string name="status_line">%1$s · %2$d/%3$d · tap a word to jump</string>
 
     <!-- Settings panel -->
     <string name="setting_font">Font</string>
     <string name="setting_margin">Margin</string>
+    <string name="setting_margin_caption">Percentage on each side. Prompter keeps a readable width beside the camera.</string>
+    <string name="setting_line_spacing">Line spacing</string>
+    <string name="readout_line_spacing">%1$.2f×</string>
+    <string name="setting_focus_band">Reading band</string>
+    <string name="setting_focus_band_caption">Dim text outside the reading line. Turn off to keep all text fully visible.</string>
+    <string name="hide_controls">Hide controls — double-tap the text or press Back to show them</string>
+    <string name="clean_screen_hint">Double-tap the text to hide or show controls. Back shows hidden controls without ending the take.</string>
+    <string name="setting_remote">Remote / keyboard</string>
+    <string name="setting_remote_caption">Use a keyboard, presenter or pedal paired with Android. No extra connection is needed in the app.</string>
+    <string name="setting_volume_keys">Volume buttons</string>
+    <string name="setting_volume_keys_caption">Volume up: previous line. Volume down: next line. These buttons control text instead of volume on this screen.</string>
+    <string name="remote_shortcuts">Space / Enter / Play-Pause: Start or Stop\nArrows: previous or next line\nPage Up / Page Down: previous or next page\nHome: restart script\nH: hide or show controls\nStop finishes the take and opens Save/Discard.</string>
+    <string name="settings_saved_caption">Reading settings are saved separately for SelfiePrompter and ExtPrompter.</string>
+    <string name="reset_reading_settings">Reset this mode’s reading settings</string>
     <string name="setting_screen">Screen</string>
     <string name="setting_read_line">Read line</string>
     <string name="setting_mirror">Mirror</string>

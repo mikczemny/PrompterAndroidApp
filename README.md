@@ -42,6 +42,47 @@ Built to be commercialized as a simple paid app across multiple markets
   re-measuring the text.
 - `ui/ScreenAwake.kt` — holds the screen on, pins its brightness, and hides the
   system bars while prompting.
+- `ui/RemoteControl.kt` — stage shortcuts for Android keyboard/HID remotes and
+  pedals, including line/page navigation and optional volume-button mapping.
+- `ui/StagePreferences.kt` — persistent, separate reading setups for selfie and
+  external-camera use. Margins scale with the viewport and line spacing is
+  adjustable. The reading band is optional and starts off in selfie mode.
+
+## Reading setup and hands-free controls
+
+Open Settings on the reading stage to adjust font, margins, line spacing,
+reading position, brightness, mirror and countdown. Settings are saved for the
+selected mode; returning to a script restores them. The reset button resets
+only that mode's reading settings.
+
+Pair a keyboard, presenter or pedal in Android (or connect a USB keyboard).
+On the stage, Space/Enter/Play-Pause starts or stops a take, arrows move a line,
+Page Up/Down moves a page, Home restarts the script and H hides/shows controls.
+Stop finishes the recording and opens Save/Discard. Volume-button navigation
+is opt-in. Shortcuts do not control the settings or recording decision dialogs.
+
+The fullscreen button or a double-tap on the text hides controls. Double-tap
+again, press H, or use Android Back to reveal them. Hiding controls does not
+unbind the camera. See [Reading controls](docs/READING-CONTROLS.md) for mappings,
+layout behavior and device verification.
+
+## Retro and classic appearance
+
+Use the palette button in the mode chooser or script editor, or **Settings →
+Interface style and colours** on the reading stage. Changes apply immediately.
+
+Five styles have distinct window frames, controls and typography: **Workbench**,
+**Commodore 64**, **Windows 3.11**, **Manuscript** and **Modern**. Each can use its
+original colours or Bottle green & gold, Paper, Graphite, Amber, Ice, and Plum.
+Every style remembers its own palette. The first-run default is Manuscript in
+bottle green with gold accents.
+
+The reading script stays light on black with the same readable typeface. Its
+progress, recognized-word highlight and camera border follow the selected accent.
+Switching appearance preserves the draft, reading settings and active take; the
+editor also retains its draft when returning from another screen.
+
+See [Appearance](docs/APPEARANCE.md) for palette behaviour and implementation notes.
 
 ## Languages & models
 

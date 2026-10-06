@@ -3,21 +3,25 @@ package com.mikczemny.prompter.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.WrapText
@@ -28,29 +32,24 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,9 +65,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikczemny.prompter.BuildConfig
@@ -80,6 +83,16 @@ import com.mikczemny.prompter.document.oneSentencePerLine
 import com.mikczemny.prompter.match.splitWords
 import com.mikczemny.prompter.speech.Language
 import com.mikczemny.prompter.speech.Languages
+import com.mikczemny.prompter.ui.theme.AppAppearanceButton
+import com.mikczemny.prompter.ui.theme.AppButton
+import com.mikczemny.prompter.ui.theme.AppIconButton
+import com.mikczemny.prompter.ui.theme.AppOutlinedButton
+import com.mikczemny.prompter.ui.theme.AppPanel
+import com.mikczemny.prompter.ui.theme.AppTonalButton
+import com.mikczemny.prompter.ui.theme.AppWindow
+import com.mikczemny.prompter.ui.theme.LocalAppearance
+import com.mikczemny.prompter.ui.theme.appFrame
+import com.mikczemny.prompter.ui.theme.appSurfaceShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,7 +136,7 @@ private val QUICK_INSERTS = listOf(
     QuickInsert(R.string.qi_new_paragraph, "\n\n"),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     initialLanguage: Language = Languages.DEFAULT,
@@ -137,7 +150,8 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var language by remember { mutableStateOf(initialLanguage) }
+    var selectedLanguageCode by rememberSaveable { mutableStateOf(initialLanguage.code) }
+    val language = Languages.byCode(selectedLanguageCode)
     // A TextFieldValue rather than a String, because the editing controls insert
     // at the cursor and need to know where it is.
     var script by rememberSaveable(stateSaver = TextFieldValue.Saver) {
@@ -157,6 +171,7 @@ fun HomeScreen(
     var currentScriptId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val text = script.text
+    val scriptLabel = stringResource(R.string.label_script)
     val wordCount = remember(text) { splitWords(text).size }
     val overSoftLimit = text.length > SOFT_CHAR_LIMIT
 
@@ -224,6 +239,7 @@ fun HomeScreen(
     }
 
     Scaffold(
+        containerColor = LocalAppearance.current.colors.desktop,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             StartBar(
@@ -232,214 +248,215 @@ fun HomeScreen(
             )
         },
     ) { scaffoldPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(scaffoldPadding)) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Spacer(Modifier.height(4.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+        AppWindow(
+            title = stringResource(R.string.app_name),
+            subtitle = stringResource(R.string.screen_script_workspace),
+            actions = { AppAppearanceButton() },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(scaffoldPadding)
+                .padding(horizontal = 12.dp)
+                .padding(top = 8.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    FilledTonalButton(onClick = onChangeMode) {
+                    AppTonalButton(
+                        onClick = onChangeMode,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Text(
-                            stringResource(
+                            text = stringResource(
                                 if (mode == PrompterMode.SELFIE) R.string.selfie_prompter
-                                else R.string.ext_prompter
-                            )
+                                else R.string.ext_prompter,
+                            ),
+                            modifier = Modifier.weight(1f),
                         )
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Filled.SwapHoriz, contentDescription = null)
                     }
-                }
-                Text(
-                    text = stringResource(R.string.home_intro),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = it },
-                ) {
-                    OutlinedTextField(
-                        value = stringResource(
-                            R.string.language_selected,
-                            language.displayName,
-                            language.englishName,
-                        ),
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(stringResource(R.string.label_language)) },
-                        supportingText = {
-                            Text(stringResource(R.string.voice_pack_size, language.approxMb))
-                        },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                    Text(
+                        text = stringResource(R.string.home_intro),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    ExposedDropdownMenu(
+
+                    ExposedDropdownMenuBox(
                         expanded = expanded,
-                        onDismissRequest = { expanded = false },
+                        onExpandedChange = { expanded = it },
                     ) {
-                        Languages.ALL.forEach { lang ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(lang.displayName, fontWeight = FontWeight.Medium)
-                                        Text(
-                                            stringResource(
-                                                R.string.language_option_detail,
-                                                lang.englishName,
-                                                lang.approxMb,
-                                            ),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    language = lang
-                                    if (!edited) script = TextFieldValue(lang.sample)
-                                    expanded = false
-                                },
-                            )
+                        OutlinedTextField(
+                            value = stringResource(
+                                R.string.language_selected,
+                                language.displayName,
+                                language.englishName,
+                            ),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(stringResource(R.string.label_language)) },
+                            supportingText = {
+                                Text(stringResource(R.string.voice_pack_size, language.approxMb))
+                            },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                            },
+                            shape = appSurfaceShape(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                        ) {
+                            Languages.ALL.forEach { lang ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(lang.displayName, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                stringResource(
+                                                    R.string.language_option_detail,
+                                                    lang.englishName,
+                                                    lang.approxMb,
+                                                ),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedLanguageCode = lang.code
+                                        if (!edited) script = TextFieldValue(lang.sample)
+                                        expanded = false
+                                    },
+                                )
+                            }
                         }
                     }
-                }
 
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilledTonalButton(
-                        onClick = { importLauncher.launch(DocumentImporter.SUPPORTED_MIME_TYPES) },
-                        enabled = !importing,
-                        shape = RoundedCornerShape(14.dp),
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.Filled.FileOpen, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            stringResource(
-                                if (importing) R.string.reading else R.string.import_button
+                        AppTonalButton(
+                            onClick = { importLauncher.launch(DocumentImporter.SUPPORTED_MIME_TYPES) },
+                            enabled = !importing,
+                        ) {
+                            Icon(Icons.Filled.FileOpen, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                stringResource(
+                                    if (importing) R.string.reading else R.string.import_button
+                                )
                             )
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { saveScript() },
-                        enabled = text.isNotBlank() && !importing,
-                        shape = RoundedCornerShape(14.dp),
-                    ) {
-                        Icon(Icons.Filled.SaveAlt, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.save))
-                    }
-                    OutlinedButton(
-                        onClick = { showLibrary = true },
-                        shape = RoundedCornerShape(14.dp),
-                    ) {
-                        Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.library))
-                    }
-                    OutlinedButton(
-                        onClick = { replaceScript(oneSentencePerLine(text)) },
-                        enabled = text.isNotBlank() && !importing,
-                        shape = RoundedCornerShape(14.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.WrapText,
-                            null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.one_line_per_sentence))
-                    }
-                }
-
-                OutlinedTextField(
-                    value = script,
-                    onValueChange = { new ->
-                        // Truncate rather than reject the whole edit, so a long
-                        // paste still lands and the user can see what fitted.
-                        script = if (new.text.length > HARD_CHAR_LIMIT) {
-                            new.copy(text = new.text.take(HARD_CHAR_LIMIT))
-                        } else {
-                            new
                         }
-                        edited = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.label_script)) },
-                    shape = RoundedCornerShape(16.dp),
-                    minLines = 8,
-                    isError = overSoftLimit,
-                )
+                        AppOutlinedButton(
+                            onClick = { saveScript() },
+                            enabled = text.isNotBlank() && !importing,
+                        ) {
+                            Icon(Icons.Filled.SaveAlt, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.save))
+                        }
+                        AppOutlinedButton(
+                            onClick = { showLibrary = true },
+                        ) {
+                            Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.library))
+                        }
+                        AppOutlinedButton(
+                            onClick = { replaceScript(oneSentencePerLine(text)) },
+                            enabled = text.isNotBlank() && !importing,
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.WrapText,
+                                null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.one_line_per_sentence))
+                        }
+                    }
 
-                QuickInsertBar(onInsert = ::insertAtCursor)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Keep the label outside the inset frame, where a
+                        // beveled or double border cannot draw through it.
+                        Text(scriptLabel, style = MaterialTheme.typography.labelLarge)
+                        OutlinedTextField(
+                            value = script,
+                            onValueChange = { new ->
+                                // Truncate rather than reject the whole edit, so a long
+                                // paste still lands and the user can see what fitted.
+                                script = if (new.text.length > HARD_CHAR_LIMIT) {
+                                    new.copy(text = new.text.take(HARD_CHAR_LIMIT))
+                                } else {
+                                    new
+                                }
+                                edited = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .appFrame(sunken = true)
+                                .semantics { contentDescription = scriptLabel },
+                            shape = appSurfaceShape(),
+                            minLines = 8,
+                            isError = overSoftLimit,
+                        )
+                    }
 
-                ScriptStats(
-                    wordCount = wordCount,
-                    charCount = text.length,
-                    overSoftLimit = overSoftLimit,
-                )
+                    QuickInsertBar(onInsert = ::insertAtCursor)
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                    ScriptStats(
+                        wordCount = wordCount,
+                        charCount = text.length,
+                        overSoftLimit = overSoftLimit,
+                    )
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppOutlinedButton(onClick = onOpenRecordings) {
+                            Text(stringResource(R.string.recordings))
+                        }
+                        AppOutlinedButton(onClick = onOpenLicenses) {
+                            Text(stringResource(R.string.licenses))
+                        }
+                    }
                     Text(
                         text = stringResource(R.string.version, BuildConfig.VERSION_NAME),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        Text(
-                            text = stringResource(R.string.recordings),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable(onClick = onOpenRecordings)
-                                .padding(vertical = 4.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.licenses),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable(onClick = onOpenLicenses)
-                                .padding(vertical = 4.dp),
-                        )
-                    }
                 }
 
-                Spacer(Modifier.height(4.dp))
-            }
-
-            if (importing) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                if (importing) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
             }
         }
     }
 
     if (showLibrary) {
-        ModalBottomSheet(onDismissRequest = { showLibrary = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { showLibrary = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = appSurfaceShape(),
+            containerColor = LocalAppearance.current.colors.surface,
+            dragHandle = null,
+        ) {
             ScriptLibrary(
                 scripts = savedScripts,
+                onClose = { showLibrary = false },
                 onOpen = { saved ->
                     replaceScript(saved.text)
                     currentScriptId = saved.id
@@ -460,66 +477,79 @@ fun HomeScreen(
 @Composable
 private fun ScriptLibrary(
     scripts: List<SavedScript>,
+    onClose: () -> Unit,
     onOpen: (SavedScript) -> Unit,
     onDelete: (SavedScript) -> Unit,
 ) {
-    Column(
+    AppWindow(
+        title = stringResource(R.string.saved_scripts),
+        onBack = onClose,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 28.dp),
+            .fillMaxHeight(0.85f),
     ) {
-        Text(
-            stringResource(R.string.saved_scripts),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
-
-        if (scripts.isEmpty()) {
-            Text(
-                stringResource(R.string.library_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            return@Column
-        }
-
-        scripts.forEachIndexed { index, saved ->
-            if (index > 0) HorizontalDivider()
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onOpen(saved) }
-                        .padding(vertical = 14.dp),
-                ) {
-                    Text(saved.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                    val savedWordCount = splitWords(saved.text).size
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (scripts.isEmpty()) {
+                item {
                     Text(
-                        stringResource(
-                            R.string.script_meta,
-                            pluralStringResource(
-                                R.plurals.words_count,
-                                savedWordCount,
-                                savedWordCount,
-                            ),
-                            formatTimestamp(saved.updatedAt),
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
+                        stringResource(R.string.library_empty),
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
                     )
                 }
-                IconButton(onClick = { onDelete(saved) }) {
-                    Icon(
-                        Icons.Filled.DeleteOutline,
-                        contentDescription = stringResource(R.string.delete_script, saved.title),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            }
+            items(scripts, key = { it.id }) { saved ->
+                AppPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(12.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(role = Role.Button) { onOpen(saved) }
+                                .heightIn(min = 48.dp)
+                                .padding(vertical = 6.dp),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                saved.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            val savedWordCount = splitWords(saved.text).size
+                            Text(
+                                stringResource(
+                                    R.string.script_meta,
+                                    pluralStringResource(
+                                        R.plurals.words_count,
+                                        savedWordCount,
+                                        savedWordCount,
+                                    ),
+                                    formatTimestamp(saved.updatedAt),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        AppIconButton(onClick = { onDelete(saved) }) {
+                            Icon(
+                                Icons.Filled.DeleteOutline,
+                                contentDescription = stringResource(R.string.delete_script, saved.title),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -534,22 +564,17 @@ private fun formatTimestamp(millis: Long): String =
  * stage renders the script exactly as written, so this is how the speaker
  * decides where lines fall and where the eye rests.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuickInsertBar(onInsert: (String) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         QUICK_INSERTS.forEach { item ->
-            OutlinedButton(
+            AppOutlinedButton(
                 onClick = { onInsert(item.snippet) },
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 16.dp,
-                    vertical = 6.dp,
-                ),
             ) {
                 Text(stringResource(item.labelRes), fontSize = 15.sp)
             }
@@ -557,22 +582,18 @@ private fun QuickInsertBar(onInsert: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ScriptStats(wordCount: Int, charCount: Int, overSoftLimit: Boolean) {
-    Card(
+    AppPanel(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        ),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Stat(
                     Icons.AutoMirrored.Outlined.Notes,
@@ -630,22 +651,23 @@ private fun Stat(icon: ImageVector, value: String, caption: String) {
 @Composable
 private fun StartBar(enabled: Boolean, onStart: () -> Unit) {
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
+        color = LocalAppearance.current.colors.desktop,
     ) {
-        Button(
-            onClick = onStart,
-            enabled = enabled,
-            shape = RoundedCornerShape(20.dp),
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-                .height(60.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(stringResource(R.string.start), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            AppButton(
+                onClick = onStart,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+            ) {
+                Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(R.string.start), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
