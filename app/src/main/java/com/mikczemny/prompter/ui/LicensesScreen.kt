@@ -2,24 +2,17 @@ package com.mikczemny.prompter.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -30,6 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikczemny.prompter.R
+import com.mikczemny.prompter.ui.theme.AppPanel
+import com.mikczemny.prompter.ui.theme.AppWindow
+import com.mikczemny.prompter.ui.theme.LocalAppearance
 
 /**
  * A single attributed dependency. The name and provider are proper nouns and
@@ -57,7 +53,6 @@ private val COMPONENTS = listOf(
  * text. The text is bundled as a raw resource rather than linked, because the
  * app is built to work with no network once a language pack is in place.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LicensesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -67,94 +62,83 @@ fun LicensesScreen(onBack: () -> Unit) {
             .use { it.readText() }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.licenses)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back_to_menu),
-                        )
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
+    Scaffold(containerColor = LocalAppearance.current.colors.desktop) { padding ->
+        AppWindow(
+            title = stringResource(R.string.licenses),
+            onBack = onBack,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.licenses_intro),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Text(
-                text = stringResource(R.string.licenses_components),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                ),
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    COMPONENTS.forEachIndexed { index, component ->
-                        if (index > 0) HorizontalDivider()
-                        Column(modifier = Modifier.padding(vertical = 14.dp)) {
-                            Text(
-                                component.name,
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            Text(
-                                component.provider,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                stringResource(R.string.license_apache),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                Text(
+                    text = stringResource(R.string.licenses_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Text(
+                    text = stringResource(R.string.licenses_components),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                AppPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                ) {
+                    Column {
+                        COMPONENTS.forEachIndexed { index, component ->
+                            if (index > 0) HorizontalDivider()
+                            Column(modifier = Modifier.padding(vertical = 14.dp)) {
+                                Text(
+                                    component.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                                Text(
+                                    component.provider,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    stringResource(R.string.license_apache),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            Text(
-                text = stringResource(R.string.licenses_full_text_title),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-
-            // The full license text, verbatim. Monospace keeps the boilerplate's
-            // original layout readable; it is selectable so a reviewer can copy it.
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                ),
-            ) {
                 Text(
-                    text = licenseText,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
+                    text = stringResource(R.string.licenses_full_text_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
                 )
+
+                // The full license text, verbatim. Monospace keeps the boilerplate's
+                // original layout readable; it is selectable so a reviewer can copy it.
+                AppPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = licenseText,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

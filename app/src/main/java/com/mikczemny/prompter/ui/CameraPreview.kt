@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
@@ -29,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -39,7 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mikczemny.prompter.R
-import com.mikczemny.prompter.ui.theme.StageColors
+import com.mikczemny.prompter.ui.theme.LocalAppearance
+import com.mikczemny.prompter.ui.theme.appSurfaceShape
 import kotlin.math.roundToInt
 
 data class CameraWindowBounds(
@@ -90,6 +89,8 @@ fun FloatingCameraWindow(
     onClose: () -> Unit,
     controlsVisible: Boolean = true,
 ) {
+    val stage = LocalAppearance.current.stage
+    val windowShape = appSurfaceShape()
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val maxW = constraints.maxWidth.toFloat()
@@ -112,8 +113,8 @@ fun FloatingCameraWindow(
             modifier = Modifier
                 .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
                 .size(with(density) { winW.toDp() }, with(density) { winH.toDp() })
-                .clip(RoundedCornerShape(14.dp))
-                .border(BorderStroke(2.dp, StageColors.Live), RoundedCornerShape(14.dp)),
+                .clip(windowShape)
+                .border(BorderStroke(2.dp, stage.Live), windowShape),
         ) {
             CameraPreview(controller = controller, modifier = Modifier.fillMaxSize())
 
@@ -142,14 +143,14 @@ fun FloatingCameraWindow(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(2.dp)
-                    .size(28.dp)
-                    .background(Color(0x99000000), RoundedCornerShape(50)),
+                    .size(48.dp)
+                    .background(stage.Panel.copy(alpha = 0.9f), windowShape),
             ) {
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = stringResource(R.string.hide_camera),
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp),
+                    tint = stage.Foreground,
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

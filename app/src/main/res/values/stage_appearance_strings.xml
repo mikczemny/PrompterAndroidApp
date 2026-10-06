@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stage_controls_title">Reading desk</string>
+    <string name="stage_appearance_title">Interface style and colours</string>
+    <string name="stage_appearance_summary">%1$s · %2$s</string>
+</resources>

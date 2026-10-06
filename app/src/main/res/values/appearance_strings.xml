@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_title">Appearance</string>
+    <string name="appearance_intro">Choose a desktop style and its colours. Changes are saved immediately; each style remembers its palette.</string>
+    <string name="appearance_style">Desktop style</string>
+    <string name="appearance_palette">Colour palette</string>
+    <string name="appearance_preview">LIVE PREVIEW</string>
+    <string name="appearance_preview_title">Prompter Studio</string>
+    <string name="appearance_preview_heading">A story worth telling.</string>
+    <string name="appearance_preview_body">Your words. Your rhythm. Ready for the next take.</string>
+    <string name="appearance_preview_start">Start</string>
+    <string name="appearance_preview_library">Scripts</string>
+    <string name="appearance_stage_note">The script stays light on black for clear reading through teleprompter glass. Controls and reading highlights use the chosen accent.</string>
+    <string name="appearance_done">Done</string>
+    <string name="appearance_close">Close appearance settings</string>
+    <string name="appearance_back">Back</string>
+    <string name="appearance_workbench">Workbench</string>
+    <string name="appearance_commodore">Commodore 64</string>
+    <string name="appearance_windows">Windows 3.11</string>
+    <string name="appearance_manuscript">Manuscript</string>
+    <string name="appearance_modern">Modern</string>
+    <string name="appearance_workbench_description">Amiga-inspired flat windows, crisp borders and monospaced lettering.</string>
+    <string name="appearance_commodore_description">C64-inspired terminal colours, double-line frames and monospaced text.</string>
+    <string name="appearance_windows_description">Classic raised controls, square windows and a Windows 3.11-inspired title bar.</string>
+    <string name="appearance_manuscript_description">Quiet pages, serif headings and typewriter-style labels, inspired by Manuscript.</string>
+    <string name="appearance_modern_description">Clean rounded panels and contemporary, uncluttered typography.</string>
+    <string name="appearance_commodore_header">*** PROMPTER 64 ***</string>
+    <string name="appearance_original">Original</string>
+    <string name="appearance_bottle_gold">Bottle green &amp; gold</string>
+    <string name="appearance_paper">Paper</string>
+    <string name="appearance_graphite">Graphite</string>
+    <string name="appearance_amber">Amber</string>
+    <string name="appearance_ice">Ice</string>
+    <string name="appearance_plum">Plum</string>
+</resources>

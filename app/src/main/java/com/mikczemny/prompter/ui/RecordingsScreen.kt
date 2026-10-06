@@ -8,27 +8,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -40,12 +37,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.mikczemny.prompter.R
 import com.mikczemny.prompter.data.Recording
 import com.mikczemny.prompter.data.RecordingStore
+import com.mikczemny.prompter.ui.theme.AppIconButton
+import com.mikczemny.prompter.ui.theme.AppPanel
+import com.mikczemny.prompter.ui.theme.AppWindow
+import com.mikczemny.prompter.ui.theme.LocalAppearance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,7 +63,6 @@ import java.util.Date
  * picks through the system file picker — [RecordingStore] hides which, so this
  * screen just lists, plays and deletes.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -142,56 +144,50 @@ fun RecordingsScreen(onBack: () -> Unit) {
         folderLabel = withContext(Dispatchers.IO) { store.folderLabel() }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.recordings)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back_to_menu),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { folderPicker.launch(null) }) {
-                        Icon(
-                            Icons.Filled.FolderOpen,
-                            contentDescription = stringResource(R.string.choose_folder),
-                        )
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
+    Scaffold(containerColor = LocalAppearance.current.colors.desktop) { padding ->
+        AppWindow(
+            title = stringResource(R.string.recordings),
+            onBack = onBack,
+            actions = {
+                AppIconButton(onClick = { folderPicker.launch(null) }) {
+                    Icon(
+                        Icons.Filled.FolderOpen,
+                        contentDescription = stringResource(R.string.choose_folder),
+                    )
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp),
+                .padding(12.dp),
         ) {
-            Text(
-                text = stringResource(
-                    R.string.saving_to,
-                    folderLabel ?: stringResource(R.string.folder_app_default),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-
-            if (recordings.isEmpty()) {
-                Text(
-                    stringResource(R.string.recordings_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 12.dp),
-                )
-                return@Column
-            }
-
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    AppPanel(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = stringResource(
+                                R.string.saving_to,
+                                folderLabel ?: stringResource(R.string.folder_app_default),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (recordings.isEmpty()) {
+                    item {
+                        Text(
+                            stringResource(R.string.recordings_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+                }
                 items(recordings, key = { it.uri.toString() }) { recording ->
                     RecordingRow(
                         recording = recording,
@@ -205,7 +201,6 @@ fun RecordingsScreen(onBack: () -> Unit) {
                             }
                         },
                     )
-                    HorizontalDivider()
                 }
             }
         }
@@ -219,46 +214,56 @@ private fun RecordingRow(
     onTogglePlay: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onTogglePlay)
-            .padding(vertical = 8.dp),
+    AppPanel(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(12.dp),
     ) {
-        val isVideo = recording.name.endsWith(".mp4", ignoreCase = true)
-        IconButton(onClick = onTogglePlay) {
-            Icon(
-                when {
-                    isVideo -> Icons.Filled.Movie
-                    playing -> Icons.Filled.Stop
-                    else -> Icons.Filled.PlayArrow
-                },
-                contentDescription = stringResource(
-                    if (playing) R.string.stop_playback else R.string.play
-                ),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                recording.name,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-            )
-            Text(
-                "${formatSize(recording.sizeBytes)} · ${formatDate(recording.lastModified)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Filled.DeleteOutline,
-                contentDescription = stringResource(R.string.delete_recording, recording.name),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            val isVideo = recording.name.endsWith(".mp4", ignoreCase = true)
+            AppIconButton(onClick = onTogglePlay) {
+                Icon(
+                    when {
+                        isVideo -> Icons.Filled.Movie
+                        playing -> Icons.Filled.Stop
+                        else -> Icons.Filled.PlayArrow
+                    },
+                    contentDescription = stringResource(
+                        if (playing) R.string.stop_playback else R.string.play
+                    ),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(role = Role.Button, onClick = onTogglePlay)
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 10.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    recording.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${formatSize(recording.sizeBytes)} · ${formatDate(recording.lastModified)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AppIconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Filled.DeleteOutline,
+                    contentDescription = stringResource(R.string.delete_recording, recording.name),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

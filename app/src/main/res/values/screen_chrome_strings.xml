@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="screen_recording_setup">Recording setup</string>
+    <string name="screen_script_workspace">Script workspace</string>
+</resources>

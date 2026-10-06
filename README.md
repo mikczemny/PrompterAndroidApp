@@ -66,6 +66,24 @@ again, press H, or use Android Back to reveal them. Hiding controls does not
 unbind the camera. See [Reading controls](docs/READING-CONTROLS.md) for mappings,
 layout behavior and device verification.
 
+## Retro and classic appearance
+
+Use the palette button in the mode chooser or script editor, or **Settings →
+Interface style and colours** on the reading stage. Changes apply immediately.
+
+Five styles have distinct window frames, controls and typography: **Workbench**,
+**Commodore 64**, **Windows 3.11**, **Manuscript** and **Modern**. Each can use its
+original colours or Bottle green & gold, Paper, Graphite, Amber, Ice, and Plum.
+Every style remembers its own palette. The first-run default is Manuscript in
+bottle green with gold accents.
+
+The reading script stays light on black with the same readable typeface. Its
+progress, recognized-word highlight and camera border follow the selected accent.
+Switching appearance preserves the draft, reading settings and active take; the
+editor also retains its draft when returning from another screen.
+
+See [Appearance](docs/APPEARANCE.md) for palette behaviour and implementation notes.
+
 ## Languages & models
 
 No models are bundled in the APK (keeps it small). On first use of a language,
